@@ -1,5 +1,6 @@
 ;;;; -*- coding: utf-8; fill-column: 78 -*-
 changes relative to sbcl-1.1.15:
+  * enhancement: improve the reporting of TYPE-ERRORs (lp#777346)
   * minor incompatible change: improve read/print consistency for pathnames on
     Win32, by using the circumflex character #\^ as the escape character.
     (lp#673625)
