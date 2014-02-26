@@ -427,9 +427,9 @@ and lower case. For ASCII, this is the same as ALPHA-CHAR-P."
 that digit stands, else returns NIL."
   (let ((m (- (char-code char) 48)))
     (declare (fixnum m))
-    (cond ((<= radix 10.)
-           ;; Special-case decimal and smaller radices.
-           (if (and (>= m 0) (< m radix))  m  nil))
+    (cond ((and (<= radix 10.) (<= m 79.))
+           ;; Special-case decimal and smaller radices with ASCII digits.
+           (if (and (>= m 0) (< m radix)) m nil))
           ;; Digits 0 - 9 are used as is, since radix is larger.
           ((and (>= m 0) (< m 10)) m)
           ;; Check for upper case A - Z.

@@ -75,6 +75,21 @@
   (assert (= (parse-integer "   12   ") 12))
   (assert (= (parse-integer "   12asdb" :junk-allowed t) 12)))
 
+;; digit-char-p (and by extension parse-integer) did not corretcly handle
+;; non-ASCII digits in radixes <= 10. Test for this and other similar cases
+#+sb-unicode
+(macrolet ((assert-parse-error (form)
+             `(multiple-value-bind (val cond)
+                  (ignore-errors ,form)
+                (assert (null val))
+                (assert (typep cond 'parse-error)))))
+  (assert (= (parse-integer "١٢٣٤٥") 12345)) ; Arabic-indic digits
+  (assert (= (parse-integer "𝟒5०") 450))
+  (assert (= (parse-integer "၁F" :radix 16) 31))
+  (assert (= ೨ 2 ୨))
+  (assert-parse-error (parse-integer "8" :radix 8))
+  (assert-parse-error (parse-integer "໘" :radix 8))) ; Another 8
+
 ;;; #A notation enforces that once one 0 dimension has been found, all
 ;;; subsequent ones are also 0.
 (assert (equal (array-dimensions (read-from-string "#3A()"))
