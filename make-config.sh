@@ -447,11 +447,8 @@ case "$sbcl_os" in
 		;;
         esac
 
-        if [ $sbcl_arch = "x86-64" ]; then
-            link_or_copy Config.x86_64-linux Config
-        else
-            link_or_copy Config.$sbcl_arch-linux Config
-        fi
+
+        link_or_copy Config.$sbcl_arch-linux Config
         link_or_copy $sbcl_arch-linux-os.h target-arch-os.h
         link_or_copy linux-os.h target-os.h
         ;;
@@ -585,7 +582,7 @@ if [ "$sbcl_arch" = "x86" ]; then
     printf ' :stack-allocatable-closures :stack-allocatable-vectors' >> $ltf
     printf ' :stack-allocatable-lists :stack-allocatable-fixed-objects' >> $ltf
     printf ' :alien-callbacks :cycle-counter :inline-constants ' >> $ltf
-    printf ' :memory-barrier-vops :multiply-high-vops :ash-right-vops' >> $ltf
+    printf ' :memory-barrier-vops :multiply-high-vops :ash-right-vops :symbol-info-vops' >> $ltf
     case "$sbcl_os" in
     linux | freebsd | netbsd | openbsd | sunos | darwin | win32)
         printf ' :linkage-table' >> $ltf
@@ -606,7 +603,7 @@ elif [ "$sbcl_arch" = "x86-64" ]; then
     printf ' :stack-allocatable-lists :stack-allocatable-fixed-objects' >> $ltf
     printf ' :alien-callbacks :cycle-counter :complex-float-vops' >> $ltf
     printf ' :float-eql-vops :inline-constants :memory-barrier-vops' >> $ltf
-    printf ' :multiply-high-vops :sb-simd-pack :ash-right-vops' >> $ltf
+    printf ' :multiply-high-vops :sb-simd-pack :ash-right-vops :symbol-info-vops' >> $ltf
 elif [ "$sbcl_arch" = "mips" ]; then
     printf ' :cheneygc :linkage-table' >> $ltf
     printf ' :stack-allocatable-closures :stack-allocatable-vectors' >> $ltf

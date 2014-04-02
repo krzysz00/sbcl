@@ -291,7 +291,7 @@
                    #+sb-xc-host
                    (when (eql (find-symbol (symbol-name name) :cl) name)
                      (multiple-value-bind (xc-value foundp)
-                         (info :variable :xc-constant-value name)
+                         (xc-constant-value name)
                        (cond (foundp
                               (setf value xc-value))
                              ((not (eq value name))
@@ -322,7 +322,7 @@
                         string
                         #!+sb-simd-pack
                         #+sb-xc-host nil
-                        #-sb-xc-host sb!kernel:simd-pack)))
+                        #-sb-xc-host simd-pack)))
              (grovel (value)
                ;; Unless VALUE is an object which which obviously
                ;; can't contain other objects

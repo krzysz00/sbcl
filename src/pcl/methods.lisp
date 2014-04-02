@@ -909,9 +909,9 @@
                                    'get-accessor-method-function)))
                     ,optimized-std-fun)))
                 (wrappers
-                 (let ((wrappers (list (wrapper-of class)
+                 (let ((wrappers (list (layout-of class)
                                        (class-wrapper class)
-                                       (wrapper-of slotd))))
+                                       (layout-of slotd))))
                    (if (eq type 'writer)
                        (cons (class-wrapper *the-class-t*) wrappers)
                        wrappers)))
@@ -1649,11 +1649,8 @@
       (let ((inner (maybe-encapsulate-discriminating-function
                     gf (cdr encs) std))
             (function (cdar encs)))
-        (lambda (&rest sb-int:arg-list)
-          (declare (special sb-int:arg-list))
-          (let ((sb-int:basic-definition inner))
-            (declare (special sb-int:arg-list sb-int:basic-definition))
-            (funcall function))))))
+        (lambda (&rest args)
+          (apply function inner args)))))
 (defmethod compute-discriminating-function ((gf standard-generic-function))
   (standard-compute-discriminating-function gf))
 (defmethod compute-discriminating-function :around ((gf standard-generic-function))
@@ -1661,7 +1658,7 @@
    gf (generic-function-encapsulations gf) (call-next-method)))
 
 (defmethod (setf class-name) (new-value class)
-  (let ((classoid (wrapper-classoid (class-wrapper class))))
+  (let ((classoid (layout-classoid (class-wrapper class))))
     (if (and new-value (symbolp new-value))
         (setf (classoid-name classoid) new-value)
         (setf (classoid-name classoid) nil)))

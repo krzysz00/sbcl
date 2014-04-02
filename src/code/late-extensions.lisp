@@ -63,12 +63,13 @@
        (declaim (inline ,name))
        (defun ,name (instance)
          (declare (type ,structure instance) (optimize speed))
-         (sb!ext:truly-the
-          sb!vm:word
-          (+ (sb!kernel:get-lisp-obj-address instance)
+         (truly-the
+          word
+          (+ (get-lisp-obj-address instance)
              (- (* ,(if (eq t raw-type)
                         (+ sb!vm:instance-slots-offset index)
-                        (- (1+ (sb!kernel::dd-instance-length dd)) sb!vm:instance-slots-offset index
+                        (- (1+ (sb!kernel::dd-instance-length dd))
+                           sb!vm:instance-slots-offset index
                            (1- (sb!kernel::raw-slot-words raw-type))))
                    sb!vm:n-word-bytes)
                 sb!vm:instance-pointer-lowtag)))))))
@@ -87,7 +88,7 @@
            (invalid-place))
          #!+(or x86 x86-64 ppc)
          (with-unique-names (array)
-           `(let ((,array (the (simple-array sb!ext:word (*)) ,(car args))))
+           `(let ((,array (the (simple-array word (*)) ,(car args))))
               (%array-atomic-incf/word
                ,array
                (%check-bound ,array (array-dimension ,array 0) ,(cadr args))
@@ -105,14 +106,14 @@
                           `(+ ,old-value (the sb!vm:signed-word ,diff)))
                          (atomic-decf
                           `(- ,old-value (the sb!vm:signed-word ,diff))))))
-             `(sb!sys:without-interrupts
-               (let* ((,array ,(car args))
-                      (,index ,(cadr args))
-                      (,old-value (aref ,array ,index)))
-                 (setf (aref ,array ,index)
-                       (logand #.(1- (ash 1 sb!vm:n-word-bits))
-                               ,incremented-value))
-                 ,old-value)))))
+             `(without-interrupts
+                (let* ((,array ,(car args))
+                       (,index ,(cadr args))
+                       (,old-value (aref ,array ,index)))
+                  (setf (aref ,array ,index)
+                        (logand #.(1- (ash 1 sb!vm:n-word-bits))
+                                ,incremented-value))
+                  ,old-value)))))
         (t
          (when (cdr args)
            (invalid-place))
@@ -143,20 +144,20 @@
                  ;; No threads outside x86 and x86-64 for now, so this is easy...
                  #!-(or x86 x86-64 ppc)
                  (with-unique-names (structure old)
-                                    `(sb!sys:without-interrupts
-                                      (let* ((,structure ,@args)
-                                             (,old (,op ,structure)))
-                                        (setf (,op ,structure)
-                                              (logand #.(1- (ash 1 sb!vm:n-word-bits))
-                                                      ,(ecase name
-                                                              (atomic-incf
-                                                               `(+ ,old (the sb!vm:signed-word ,diff)))
-                                                              (atomic-decf
-                                                               `(- ,old (the sb!vm:signed-word ,diff))))))
-                                        ,old))))
+                                    `(without-interrupts
+                                       (let* ((,structure ,@args)
+                                              (,old (,op ,structure)))
+                                         (setf (,op ,structure)
+                                               (logand #.(1- (ash 1 sb!vm:n-word-bits))
+                                                       ,(ecase name
+                                                          (atomic-incf
+                                                              `(+ ,old (the sb!vm:signed-word ,diff)))
+                                                          (atomic-decf
+                                                              `(- ,old (the sb!vm:signed-word ,diff))))))
+                                         ,old))))
              (invalid-place))))))))
 
-(defmacro atomic-incf (place &optional (diff 1))
+(def!macro atomic-incf (place &optional (diff 1))
   #!+sb-doc
   "Atomically increments PLACE by DIFF, and returns the value of PLACE before
 the increment.
@@ -238,10 +239,9 @@ See also the declarations SB-EXT:GLOBAL and SB-EXT:ALWAYS-BOUND."
          (let ((,boundp (boundp ',name)))
            (%compiler-defglobal ',name :always-bound
                                 (unless ,boundp ,value) (not ,boundp))))
-       (eval-when (:load-toplevel :execute)
-         (let ((,boundp (boundp ',name)))
-           (%defglobal ',name (unless ,boundp ,value) ,boundp ',doc ,docp
-                       (sb!c:source-location)))))))
+       (let ((,boundp (boundp ',name)))
+         (%defglobal ',name (unless ,boundp ,value) ,boundp ',doc ,docp
+                     (sb!c:source-location))))))
 
 (defmacro-mundanely define-load-time-global (name value &optional (doc nil docp))
   #!+sb-doc
@@ -256,10 +256,9 @@ See also DEFGLOBAL which assigns the VALUE at compile-time too."
     `(progn
        (eval-when (:compile-toplevel)
          (%compiler-defglobal ',name :eventually nil nil))
-       (eval-when (:load-toplevel :execute)
-         (let ((,boundp (boundp ',name)))
-           (%defglobal ',name (unless ,boundp ,value) ,boundp ',doc ,docp
-                       (sb!c:source-location)))))))
+       (let ((,boundp (boundp ',name)))
+         (%defglobal ',name (unless ,boundp ,value) ,boundp ',doc ,docp
+                     (sb!c:source-location))))))
 
 (defun %compiler-defglobal (name always-boundp value assign-it-p)
   (sb!xc:proclaim `(global ,name))

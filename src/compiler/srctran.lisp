@@ -3231,13 +3231,36 @@
         `(ash x ,len))))
 
 ;;; These must come before the ones below, so that they are tried
-;;; first. Since %FLOOR and %CEILING are inlined, this allows
-;;; the general case to be handled by TRUNCATE transforms.
-(deftransform floor ((x y))
-  `(%floor x y))
+;;; first.
+(deftransform floor ((number divisor))
+  `(multiple-value-bind (tru rem) (truncate number divisor)
+     (if (and (not (zerop rem))
+              (if (minusp divisor)
+                  (plusp number)
+                  (minusp number)))
+         (values (1- tru) (+ rem divisor))
+         (values tru rem))))
 
-(deftransform ceiling ((x y))
-  `(%ceiling x y))
+(deftransform ceiling ((number divisor))
+  `(multiple-value-bind (tru rem) (truncate number divisor)
+     (if (and (not (zerop rem))
+              (if (minusp divisor)
+                  (minusp number)
+                  (plusp number)))
+         (values (+ tru 1) (- rem divisor))
+         (values tru rem))))
+
+(deftransform rem ((number divisor))
+  `(nth-value 1 (truncate number divisor)))
+
+(deftransform mod ((number divisor))
+  `(let ((rem (rem number divisor)))
+     (if (and (not (zerop rem))
+              (if (minusp divisor)
+                  (plusp number)
+                  (minusp number)))
+         (+ rem divisor)
+         rem)))
 
 ;;; If arg is a constant power of two, turn FLOOR into a shift and
 ;;; mask. If CEILING, add in (1- (ABS Y)), do FLOOR and correct a
@@ -4876,6 +4899,15 @@
 
 
 ;;;; Transforms for internal compiler utilities
+
+(defknown set-info-value (t type-number t) t)
+
+;; An optimizer to derive that SET-INFO-VALUE always returns NEWVAL's type.
+;; Using `(TRULY-THE (VALUES ,(TYPE-INFO-TYPE ...))) in the compiler-macro
+;; for (SETF INFO) would achieve a similar effect, but this is even better.
+(defoptimizer (set-info-value derive-type) ((name type-number newval))
+  (declare (ignore name type-number))
+  (lvar-type newval))
 
 ;;; If QUALITY-NAME is constant and a valid name, don't bother
 ;;; checking that it's still valid at run-time.

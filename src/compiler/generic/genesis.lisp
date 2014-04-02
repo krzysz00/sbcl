@@ -836,7 +836,7 @@ core and return a descriptor to it."
     (write-wordindexed symbol
                        sb!vm:symbol-hash-slot
                        (make-fixnum-descriptor 0))
-    (write-wordindexed symbol sb!vm:symbol-plist-slot *nil-descriptor*)
+    (write-wordindexed symbol sb!vm:symbol-info-slot *nil-descriptor*)
     (write-wordindexed symbol sb!vm:symbol-name-slot
                        (base-string-to-core name *dynamic*))
     (write-wordindexed symbol sb!vm:symbol-package-slot *nil-descriptor*)
@@ -950,7 +950,8 @@ core and return a descriptor to it."
     (cold-set-layout-slot result 'pure *nil-descriptor*)
     (cold-set-layout-slot result 'n-untagged-slots nuntagged)
     (cold-set-layout-slot result 'source-location *nil-descriptor*)
-    (cold-set-layout-slot result 'for-std-class-p *nil-descriptor*)
+    (cold-set-layout-slot result '%for-std-class-b (make-fixnum-descriptor 0))
+    (cold-set-layout-slot result 'slot-list *nil-descriptor*)
 
     (setf (gethash name *cold-layouts*)
           (list result
@@ -1156,6 +1157,8 @@ core and return a descriptor to it."
     (car cold-intern-info)))
 
 ;;; Construct and return a value for use as *NIL-DESCRIPTOR*.
+;;; It might be nice to put NIL on a readonly page by itself to prevent unsafe
+;;; code from destroying the world with (RPLACx nil 'kablooey)
 (defun make-nil-descriptor ()
   (let* ((des (allocate-unboxed-object
                *static*
@@ -1179,8 +1182,8 @@ core and return a descriptor to it."
                        (+ 2 sb!vm:symbol-value-slot)
                        result)
     (write-wordindexed des
-                       (+ 1 sb!vm:symbol-plist-slot)
-                       result)
+                       (+ 1 sb!vm:symbol-info-slot)
+                       (cold-cons result result)) ; NIL's info is (nil . nil)
     (write-wordindexed des
                        (+ 1 sb!vm:symbol-name-slot)
                        ;; This is *DYNAMIC*, and DES is *STATIC*,
@@ -1221,7 +1224,7 @@ core and return a descriptor to it."
   ;; allocation sequences that expect it to be zero upon entrance
   ;; actually find it to be so.
   #!+(or x86-64 x86)
-  (let ((p-a-a-symbol (cold-intern 'sb!kernel:*pseudo-atomic-bits*
+  (let ((p-a-a-symbol (cold-intern '*pseudo-atomic-bits*
                                    :gspace *static*)))
     (cold-set p-a-a-symbol (make-fixnum-descriptor 0))))
 
@@ -1966,7 +1969,7 @@ core and return a descriptor to it."
         (cold-push (cold-cons (base-string-to-core (car symbol))
                               (number-to-core (cdr symbol)))
                    result)))
-    (cold-set (cold-intern 'sb!kernel:*!initial-foreign-symbols*) result)
+    (cold-set (cold-intern '*!initial-foreign-symbols*) result)
     #!+sb-dynamic-core
     (let ((runtime-linking-list *nil-descriptor*))
       (dolist (symbol *dyncore-linkage-keys*)
@@ -2066,8 +2069,11 @@ core and return a descriptor to it."
             (+ sb!vm:instance-slots-offset
                (target-layout-index 'n-untagged-slots)))))
          (ntagged (- size nuntagged)))
+    ;; An instance's header word should always indicate that it has an *odd*
+    ;; number of words after the header so that the total with header is even.
     (write-memory result (make-other-immediate-descriptor
-                          size sb!vm:instance-header-widetag))
+                          (logior size 1)
+                          sb!vm:instance-header-widetag))
     (write-wordindexed result sb!vm:instance-slots-offset layout)
     (do ((index 1 (1+ index)))
         ((eql index size))
@@ -2443,6 +2449,7 @@ core and return a descriptor to it."
 (define-cold-fop (fop-fdefinition)
   (cold-fdefinition-object (pop-stack)))
 
+#!-(or x86 x86-64)
 (define-cold-fop (fop-sanctify-for-execution)
   (pop-stack))
 
@@ -3468,7 +3475,7 @@ initially undefined function references:~2%")
           (out-to
            (string-downcase (string class))
            (write-structure-object
-            (sb!kernel:layout-info (sb!kernel:find-layout class)))))
+            (layout-info (find-layout class)))))
         (out-to "static-symbols" (write-static-symbols))
 
         (let ((fn (format nil "~A/Makefile.features" c-header-dir-name)))

@@ -330,10 +330,6 @@
 (defknown %multiply-high (word word) word
     (movable foldable flushable))
 
-(defknown (%floor %ceiling)
-  (real real) (values integer real)
-  (movable foldable flushable explicit-check))
-
 (defknown (mod rem) (real real) real
   (movable foldable flushable explicit-check))
 
@@ -1544,7 +1540,7 @@
 ;; FIXME: This function does not return, but due to the implementation
 ;; of FILTER-LVAR we cannot write it here.
 (defknown %compile-time-type-error (t t t t) *)
-(defknown sb!kernel::case-failure (t t t) nil)
+(defknown case-failure (t t t) nil)
 
 (defknown %odd-key-args-error () nil)
 (defknown %unknown-key-arg-error (t) nil)
@@ -1581,7 +1577,8 @@
   (foldable flushable))
 (defknown %set-symbol-package (symbol t) t ())
 (defknown %coerce-name-to-fun ((or symbol cons)) function (flushable))
-(defknown %coerce-callable-to-fun (callable) function (flushable))
+(defknown %coerce-callable-to-fun (callable) function
+    (flushable explicit-check))
 (defknown array-bounding-indices-bad-error (t t t) nil)
 (defknown sequence-bounding-indices-bad-error (t t t) nil)
 (defknown %find-position

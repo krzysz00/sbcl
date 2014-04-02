@@ -315,10 +315,7 @@
 
 ;;; Iterate over all the objects allocated in SPACE, calling FUN with
 ;;; the object, the object's type code, and the object's total size in
-;;; bytes, including any header and padding. CAREFUL makes
-;;; MAP-ALLOCATED-OBJECTS slightly more accurate, but a lot slower: it
-;;; is intended for slightly more demanding uses of heap groveling
-;;; then ROOM.
+;;; bytes, including any header and padding.
 #!-sb-fluid (declaim (maybe-inline map-allocated-objects))
 (defun map-allocated-objects (fun space)
   (declare (type function fun)
@@ -696,7 +693,7 @@
     (let* ((space-start (sap-int start-sap))
            (space-end (sap-int end-sap))
            (space-size (- space-end space-start))
-           (pagesize (sb!sys:get-page-size))
+           (pagesize (get-page-size))
            (start (+ space-start (round (* space-size percent) 100)))
            (printed-conses (make-hash-table :test 'eq))
            (pages-so-far 0)
@@ -837,7 +834,8 @@
                     (eq (cdr obj) object))
             (maybe-call fun obj)))
          (instance
-          (dotimes (i (%instance-length obj))
+          (dotimes (i (- (%instance-length obj)
+                         (layout-n-untagged-slots (%instance-layout obj))))
             (when (eq (%instance-ref obj i) object)
               (maybe-call fun obj)
               (return))))
@@ -856,7 +854,7 @@
          (symbol
           (when (or (eq (symbol-name obj) object)
                     (eq (symbol-package obj) object)
-                    (eq (symbol-plist obj) object)
+                    (eq (symbol-info obj) object)
                     (and (boundp obj)
                          (eq (symbol-value obj) object)))
             (maybe-call fun obj)))))
