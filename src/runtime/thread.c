@@ -629,13 +629,18 @@ create_thread_struct(lispobj initial_function) {
     for(i = 0; i < (dynamic_values_bytes / sizeof(lispobj)); i++)
         per_thread->dynamic_values[i] = NO_TLS_VALUE_MARKER_WIDETAG;
     if (all_threads == 0) {
+      /* FIXME: Should nobody find it necessary to start a slightly older core
+         than expected by the C runtime (a core in which Lisp did not perform
+         these initializations) we can remove everything in this 'if' block */
         if(SymbolValue(FREE_TLS_INDEX,0)==UNBOUND_MARKER_WIDETAG) {
             SetSymbolValue(FREE_TLS_INDEX,tls_index_start << WORD_SHIFT,0);
             SetSymbolValue(TLS_INDEX_LOCK,make_fixnum(0),0);
         }
 #define STATIC_TLS_INIT(sym,field) \
-  ((struct symbol *)(sym-OTHER_POINTER_LOWTAG))->tls_index= \
-  (THREAD_SLOT_OFFSET_WORDS(field) << WORD_SHIFT)
+        if (SYMBOL(sym)->tls_index != (THREAD_SLOT_OFFSET_WORDS(field) << WORD_SHIFT)) { \
+          if (SYMBOL(sym)->tls_index == 0) \
+            SYMBOL(sym)->tls_index = (THREAD_SLOT_OFFSET_WORDS(field) << WORD_SHIFT); \
+          else lose(#sym " TLS index is wrong"); }
 
         STATIC_TLS_INIT(BINDING_STACK_START,binding_stack_start);
 #ifdef BINDING_STACK_POINTER
@@ -643,8 +648,8 @@ create_thread_struct(lispobj initial_function) {
 #endif
         STATIC_TLS_INIT(CONTROL_STACK_START,control_stack_start);
         STATIC_TLS_INIT(CONTROL_STACK_END,control_stack_end);
-#ifdef ALIEN_STACK
-        STATIC_TLS_INIT(ALIEN_STACK,alien_stack_pointer);
+#ifdef ALIEN_STACK_POINTER
+        STATIC_TLS_INIT(ALIEN_STACK_POINTER,alien_stack_pointer);
 #endif
 #if defined(LISP_FEATURE_X86) || defined (LISP_FEATURE_X86_64)
         STATIC_TLS_INIT(PSEUDO_ATOMIC_BITS,pseudo_atomic_bits);
@@ -732,7 +737,7 @@ create_thread_struct(lispobj initial_function) {
     SetSymbolValue(CONTROL_STACK_START,(lispobj)th->control_stack_start,th);
     SetSymbolValue(CONTROL_STACK_END,(lispobj)th->control_stack_end,th);
 #if defined(LISP_FEATURE_X86) || defined (LISP_FEATURE_X86_64)
-    SetSymbolValue(ALIEN_STACK,(lispobj)th->alien_stack_pointer,th);
+    SetSymbolValue(ALIEN_STACK_POINTER,(lispobj)th->alien_stack_pointer,th);
     SetSymbolValue(PSEUDO_ATOMIC_BITS,(lispobj)th->pseudo_atomic_bits,th);
 #endif
 #endif
