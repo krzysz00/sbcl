@@ -330,10 +330,6 @@
 (defknown %multiply-high (word word) word
     (movable foldable flushable))
 
-(defknown (%floor %ceiling)
-  (real real) (values integer real)
-  (movable foldable flushable explicit-check))
-
 (defknown (mod rem) (real real) real
   (movable foldable flushable explicit-check))
 
@@ -948,6 +944,8 @@
   (movable foldable flushable))
 (defknown fill-pointer (complex-vector) index
     (unsafely-flushable explicit-check))
+(defknown sb!impl::fill-pointer-error (t &optional t) nil)
+
 (defknown vector-push (t complex-vector) (or index null)
     (explicit-check)
   :destroyed-constant-args (nth-constant-args 2))
@@ -1152,29 +1150,6 @@
 
 (defknown read-byte (stream &optional t t) t (explicit-check))
 
-(defknown write
-  (t &key
-     (:stream stream-designator)
-     (:escape t)
-     (:radix t)
-     (:base (integer 2 36))
-     (:circle t)
-     (:pretty t)
-     (:level (or unsigned-byte null))
-     (:readably t)
-     (:length (or unsigned-byte null))
-     (:case t)
-     (:array t)
-     (:gensym t)
-     (:lines (or unsigned-byte null))
-     (:right-margin (or unsigned-byte null))
-     (:miser-width (or unsigned-byte null))
-     (:pprint-dispatch t)
-     (:suppress-errors t))
-  t
-  (any explicit-check)
-  :derive-type #'result-type-first-arg)
-
 (defknown (prin1 print princ) (t &optional stream-designator)
   t
   (any explicit-check)
@@ -1183,17 +1158,33 @@
 (defknown (pprint) (t &optional stream-designator) (values)
   (explicit-check))
 
+(macrolet
+    ((deffrob (name keys returns attributes &rest more)
+       `(defknown ,name
+            (t &key ,@keys
+               (:escape t)
+               (:radix t)
+               (:base (integer 2 36))
+               (:circle t)
+               (:pretty t)
+               (:readably t)
+               (:level (or unsigned-byte null))
+               (:length (or unsigned-byte null))
+               (:case t)
+               (:array t)
+               (:gensym t)
+               (:lines (or unsigned-byte null))
+               (:right-margin (or unsigned-byte null))
+               (:miser-width (or unsigned-byte null))
+               (:pprint-dispatch t)
+               (:suppress-errors t))
+          ,returns ,attributes ,@more)))
+  (deffrob write ((:stream stream-designator)) t (any explicit-check)
+    :derive-type #'result-type-first-arg)
 ;;; xxx-TO-STRING functions are not foldable because they depend on
 ;;; the dynamic environment, the state of the pretty printer dispatch
 ;;; table, and probably other run-time factors.
-(defknown write-to-string
-  (t &key (:escape t) (:radix t) (:base (integer 2 36)) (:readably t)
-     (:circle t) (:pretty t) (:level (or unsigned-byte null))
-     (:length (or unsigned-byte null)) (:case t) (:array t) (:gensym t)
-     (:lines (or unsigned-byte null)) (:right-margin (or unsigned-byte null))
-     (:miser-width (or unsigned-byte null)) (:pprint-dispatch t))
-  simple-string
-  (flushable explicit-check))
+  (deffrob write-to-string () simple-string (flushable explicit-check)))
 
 (defknown (prin1-to-string princ-to-string) (t) simple-string (flushable))
 
@@ -1544,7 +1535,7 @@
 ;; FIXME: This function does not return, but due to the implementation
 ;; of FILTER-LVAR we cannot write it here.
 (defknown %compile-time-type-error (t t t t) *)
-(defknown sb!kernel::case-failure (t t t) nil)
+(defknown case-failure (t t t) nil)
 
 (defknown %odd-key-args-error () nil)
 (defknown %unknown-key-arg-error (t) nil)
@@ -1581,7 +1572,8 @@
   (foldable flushable))
 (defknown %set-symbol-package (symbol t) t ())
 (defknown %coerce-name-to-fun ((or symbol cons)) function (flushable))
-(defknown %coerce-callable-to-fun (callable) function (flushable))
+(defknown %coerce-callable-to-fun (callable) function
+    (flushable explicit-check))
 (defknown array-bounding-indices-bad-error (t t t) nil)
 (defknown sequence-bounding-indices-bad-error (t t t) nil)
 (defknown %find-position
@@ -1746,6 +1738,10 @@
                                list type-specifier symbol)
     condition
     (explicit-check))
+
+(defknown coerce-symbol-to-fun (symbol)
+  function
+  ())
 
 (defknown sc-number-or-lose (symbol) sc-number
   (foldable))

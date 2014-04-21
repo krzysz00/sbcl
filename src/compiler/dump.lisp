@@ -985,7 +985,11 @@
              (dump-byte (char-code (schar name i)) fasl-output))))
         (:code-object
          (aver (null name))
-         (dump-fop 'fop-code-object-fixup fasl-output)))
+         (dump-fop 'fop-code-object-fixup fasl-output))
+        (:symbol-tls-index
+         (aver (symbolp name))
+         (dump-non-immediate-object name fasl-output)
+         (dump-fop 'fop-symbol-tls-fixup fasl-output)))
       ;; No matter what the flavor, we'll always dump the position
       (dump-word position fasl-output)))
   (values))
@@ -1093,6 +1097,7 @@
       ;; FOP-CODE/FOP-SMALL-CODE fop.
       (dump-fixups fixups fasl-output)
 
+      #!-(or x86 x86-64)
       (dump-fop 'fop-sanctify-for-execution fasl-output)
 
       (let ((handle (dump-pop fasl-output)))
@@ -1111,6 +1116,7 @@
     (dump-fop 'fop-assembler-routine file)
     (dump-word (label-position (cdr routine)) file))
   (dump-fixups fixups file)
+  #!-(or x86 x86-64)
   (dump-fop 'fop-sanctify-for-execution file)
   (dump-pop file))
 
@@ -1235,11 +1241,17 @@
 
 ;;;; dumping structures
 
+;; Having done nothing more than load all files in obj/from-host, the
+;; cross-compiler running under any host Lisp begins life able to access
+;; SBCL-format metadata for any structure that is a subtype of STRUCTURE!OBJECT.
+;; But if it learns a layout by cross-compiling a DEFSTRUCT, that's ok too.
 (defun dump-structure (struct file)
-  (when *dump-only-valid-structures*
-    (unless (gethash struct (fasl-output-valid-structures file))
-      (error "attempt to dump invalid structure:~%  ~S~%How did this happen?"
-             struct)))
+  (when (and *dump-only-valid-structures*
+             (not (gethash struct (fasl-output-valid-structures file)))
+             #+sb-xc-host
+             (not (sb!kernel::xc-dumpable-structure-instance-p struct)))
+    (error "attempt to dump invalid structure:~%  ~S~%How did this happen?"
+           struct))
   (note-potential-circularity struct file)
   (aver (%instance-ref struct 0))
   (do* ((length (%instance-length struct))

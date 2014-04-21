@@ -110,7 +110,7 @@
 (defparameter *c-callable-static-symbols*
   '(sub-gc
     sb!kernel::post-gc
-    sb!kernel::internal-error
+    internal-error
     sb!kernel::control-stack-exhausted-error
     sb!kernel::binding-stack-exhausted-error
     sb!kernel::alien-stack-exhausted-error
@@ -122,7 +122,6 @@
     #!-x86-64 undefined-alien-fun-error
     sb!di::handle-breakpoint
     sb!di::handle-single-step-trap
-    fdefinition-object
     #!+win32 sb!kernel::handle-win32-exception
     #!+sb-thruption sb!thread::run-interruption
     #!+sb-safepoint sb!thread::enter-foreign-callback
@@ -197,6 +196,10 @@
 ;;; Number of entries in the thread local storage. Limits the number
 ;;; of symbols with thread local bindings.
 (def!constant tls-size 4096)
+;;; Refer to the lengthy comment in 'src/runtime/interrupt.h' about
+;;; the choice of this number. Rather than have to two copies
+;;; of the comment, please see that file before adjusting this.
+(def!constant max-interrupts 1024)
 
 #!+gencgc
 (progn

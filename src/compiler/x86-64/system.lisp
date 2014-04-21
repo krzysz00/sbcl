@@ -238,6 +238,43 @@
                             fun-pointer-lowtag)))
     (storew temp function simple-fun-self-slot fun-pointer-lowtag)
     (move result new-self)))
+
+;;;; symbol frobbing
+
+;; only define if the feature is enabled to test building without it
+#!+symbol-info-vops
+(progn
+(define-vop (symbol-info-vector)
+  (:policy :fast-safe)
+  (:translate symbol-info-vector)
+  (:args (x :scs (descriptor-reg)))
+  (:results (res :scs (descriptor-reg)))
+  (:temporary (:sc unsigned-reg :offset rax-offset) rax)
+  (:generator 1
+    (loadw res x symbol-info-slot other-pointer-lowtag)
+    ;; If RES has list-pointer-lowtag, take its CDR. If not, use it as-is.
+    ;; This CMOV safely reads from memory when it does not move, because if
+    ;; there is an info-vector in the slot, it has at least one element.
+    ;; This would compile to almost the same code without a VOP,
+    ;; but using a jmp around a mov instead.
+    (inst lea rax (make-ea :dword :base res :disp (- list-pointer-lowtag)))
+    (inst test (reg-in-size rax :byte) lowtag-mask)
+    (inst cmov :e res
+          (make-ea-for-object-slot res cons-cdr-slot list-pointer-lowtag))))
+(define-vop (symbol-plist)
+  (:policy :fast-safe)
+  (:translate symbol-plist)
+  (:args (x :scs (descriptor-reg)))
+  (:results (res :scs (descriptor-reg)))
+  (:temporary (:sc unsigned-reg) temp)
+  (:generator 1
+    (loadw res x symbol-info-slot other-pointer-lowtag)
+    ;; Instruction pun: (CAR x) is the same as (VECTOR-LENGTH x)
+    ;; so if the info slot holds a vector, this gets a fixnum- it's not a plist.
+    (loadw res res cons-car-slot list-pointer-lowtag)
+    (inst mov temp nil-value)
+    (inst test (reg-in-size res :byte) fixnum-tag-mask)
+    (inst cmov :e res temp))))
 
 ;;;; other miscellaneous VOPs
 
@@ -513,3 +550,14 @@ number of CPU cycles elapsed as secondary value. EXPERIMENTAL."
    (move b ebx)
    (move c ecx)
    (move d edx)))
+
+;; In the architectures where tls-index is an ordinary slot holding a tagged
+;; object, it represents the byte offset to an aligned object and looks
+;; in Lisp like a fixnum that is off by a factor of (EXPT 2 N-FIXNUM-TAG-BITS).
+;; We're reading with a raw SAP accessor, so must make it look equally "off".
+;; Also we don't get the defknown automatically.
+(defknown symbol-tls-index (t) fixnum (flushable))
+(define-source-transform symbol-tls-index (sym)
+  `(ash (sap-ref-32 (int-sap (get-lisp-obj-address (the symbol ,sym)))
+                    (- 4 other-pointer-lowtag))
+        (- n-fixnum-tag-bits)))

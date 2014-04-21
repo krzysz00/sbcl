@@ -22,7 +22,7 @@
     (name nil :type symbol)
     ;; kind of type (how to reconstitute an object)
     (kind (missing-arg)
-          :type (member :other :closure :instance :list
+          :type (member :other :small-other :closure :instance :list
                         :code :vector-nil :weak-pointer))))
 
 (defun room-info-type-name (info)
@@ -43,7 +43,9 @@
                (not (eq name 'weak-pointer)))
       (setf (svref *meta-room-info* (symbol-value widetag))
             (make-room-info :name name
-                            :kind :other)))))
+                            :kind (if (eq name 'symbol)
+                                      :small-other
+                                      :other))))))
 
 (dolist (code (list #!+sb-unicode complex-character-string-widetag
                     complex-base-string-widetag simple-array-widetag
@@ -199,12 +201,12 @@
          (widetag (logand header widetag-mask))
          (header-value (ash header (- n-widetag-bits)))
          (info (svref *room-info* widetag)))
-    (symbol-macrolet
-        ((boxed-size (round-to-dualword (ash (1+ header-value) word-shift))))
-      (macrolet
-          ((tagged-object (tag)
-             `(%make-lisp-obj (logior ,tag (get-lisp-obj-address address)))))
-        (cond
+    (macrolet
+        ((boxed-size (header-value)
+           `(round-to-dualword (ash (1+ ,header-value) word-shift)))
+         (tagged-object (tag)
+           `(%make-lisp-obj (logior ,tag (get-lisp-obj-address address)))))
+      (cond
           ;; Pick off arrays, as they're the only plausible cause for
           ;; a non-nil, non-ROOM-INFO object as INFO.
           ((specialized-array-element-type-properties-p info)
@@ -222,17 +224,22 @@
           ((eq (room-info-kind info) :closure)
            (values (tagged-object fun-pointer-lowtag)
                    widetag
-                   boxed-size))
+                   (boxed-size header-value)))
 
           ((eq (room-info-kind info) :instance)
            (values (tagged-object instance-pointer-lowtag)
                    widetag
-                   boxed-size))
+                   (boxed-size header-value)))
 
           ((eq (room-info-kind info) :other)
            (values (tagged-object other-pointer-lowtag)
                    widetag
-                   boxed-size))
+                   (boxed-size header-value)))
+
+          ((eq (room-info-kind info) :small-other)
+           (values (tagged-object other-pointer-lowtag)
+                   widetag
+                   (boxed-size (logand header-value #xff))))
 
           ((eq (room-info-kind info) :vector-nil)
            (values (tagged-object other-pointer-lowtag)
@@ -259,7 +266,7 @@
 
           (t
            (error "Unrecognized room-info-kind ~S in reconstitute-object"
-                  (room-info-kind info))))))))
+                  (room-info-kind info)))))))
 
 ;;; Iterate over all the objects in the contiguous block of memory
 ;;; with the low address at START and the high address just before
@@ -315,10 +322,7 @@
 
 ;;; Iterate over all the objects allocated in SPACE, calling FUN with
 ;;; the object, the object's type code, and the object's total size in
-;;; bytes, including any header and padding. CAREFUL makes
-;;; MAP-ALLOCATED-OBJECTS slightly more accurate, but a lot slower: it
-;;; is intended for slightly more demanding uses of heap groveling
-;;; then ROOM.
+;;; bytes, including any header and padding.
 #!-sb-fluid (declaim (maybe-inline map-allocated-objects))
 (defun map-allocated-objects (fun space)
   (declare (type function fun)
@@ -696,7 +700,7 @@
     (let* ((space-start (sap-int start-sap))
            (space-end (sap-int end-sap))
            (space-size (- space-end space-start))
-           (pagesize (sb!sys:get-page-size))
+           (pagesize (get-page-size))
            (start (+ space-start (round (* space-size percent) 100)))
            (printed-conses (make-hash-table :test 'eq))
            (pages-so-far 0)
@@ -837,7 +841,8 @@
                     (eq (cdr obj) object))
             (maybe-call fun obj)))
          (instance
-          (dotimes (i (%instance-length obj))
+          (dotimes (i (- (%instance-length obj)
+                         (layout-n-untagged-slots (%instance-layout obj))))
             (when (eq (%instance-ref obj i) object)
               (maybe-call fun obj)
               (return))))
@@ -856,7 +861,7 @@
          (symbol
           (when (or (eq (symbol-name obj) object)
                     (eq (symbol-package obj) object)
-                    (eq (symbol-plist obj) object)
+                    (eq (symbol-info obj) object)
                     (and (boundp obj)
                          (eq (symbol-value obj) object)))
             (maybe-call fun obj)))))

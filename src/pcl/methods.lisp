@@ -80,6 +80,7 @@
     (invalid-method-initarg method "~@<~S of ~S is neither ~S nor a ~S.~@:>"
                             :documentation doc 'null 'string)))
 (defun check-lambda-list (method ll)
+  (declare (ignore method ll))
   nil)
 
 (defun check-method-function (method fun)
@@ -99,6 +100,7 @@
                                 q :qualifiers qualifiers 'null)))))
 
 (defun check-slot-name (method name)
+  (declare (ignore method))
   (unless (symbolp name)
     (invalid-method-initarg "~@<~S of ~S is not a ~S.~@:>"
                             :slot-name name 'symbol)))
@@ -575,9 +577,10 @@
       ;; it would be bad to unwind and leave the gf in an inconsistent
       ;; state.
       (sb-thread::with-recursive-system-lock (lock)
-        (let* ((specializers (method-specializers method))
+        (let* ((specializers (method-specializers method)) ; flushable?
                (methods (generic-function-methods generic-function))
                (new-methods (remove method methods)))
+          (declare (ignore specializers))
           (setf (method-generic-function method) nil
                 (generic-function-methods generic-function) new-methods)
           (dolist (specializer (method-specializers method))
@@ -909,9 +912,9 @@
                                    'get-accessor-method-function)))
                     ,optimized-std-fun)))
                 (wrappers
-                 (let ((wrappers (list (wrapper-of class)
+                 (let ((wrappers (list (layout-of class)
                                        (class-wrapper class)
-                                       (wrapper-of slotd))))
+                                       (layout-of slotd))))
                    (if (eq type 'writer)
                        (cons (class-wrapper *the-class-t*) wrappers)
                        wrappers)))
@@ -1649,11 +1652,8 @@
       (let ((inner (maybe-encapsulate-discriminating-function
                     gf (cdr encs) std))
             (function (cdar encs)))
-        (lambda (&rest sb-int:arg-list)
-          (declare (special sb-int:arg-list))
-          (let ((sb-int:basic-definition inner))
-            (declare (special sb-int:arg-list sb-int:basic-definition))
-            (funcall function))))))
+        (lambda (&rest args)
+          (apply function inner args)))))
 (defmethod compute-discriminating-function ((gf standard-generic-function))
   (standard-compute-discriminating-function gf))
 (defmethod compute-discriminating-function :around ((gf standard-generic-function))
@@ -1661,7 +1661,7 @@
    gf (generic-function-encapsulations gf) (call-next-method)))
 
 (defmethod (setf class-name) (new-value class)
-  (let ((classoid (wrapper-classoid (class-wrapper class))))
+  (let ((classoid (layout-classoid (class-wrapper class))))
     (if (and new-value (symbolp new-value))
         (setf (classoid-name classoid) new-value)
         (setf (classoid-name classoid) nil)))

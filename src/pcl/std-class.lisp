@@ -73,8 +73,9 @@
 
 (defmethod initialize-internal-slot-functions
     ((slotd effective-slot-definition))
-  (let* ((name (slot-value slotd 'name))
+  (let* ((name (slot-value slotd 'name)) ; flushable? (is it ever unbound?)
          (class (slot-value slotd '%class)))
+    (declare (ignore name))
     (dolist (type '(reader writer boundp))
       (let* ((gf-name (ecase type
                               (reader 'slot-value-using-class)
@@ -87,9 +88,7 @@
         ;; computed this early in class finalization; however, we need
         ;; this bit as early as possible.  -- CSR, 2009-11-05
         (setf (slot-accessor-std-p slotd type)
-              (let* ((std-method (standard-svuc-method type))
-                     (str-method (structure-svuc-method type))
-                     (types1 `((eql ,class) (class-eq ,class) (eql ,slotd)))
+              (let* ((types1 `((eql ,class) (class-eq ,class) (eql ,slotd)))
                      (types (if (eq type 'writer) `(t ,@types1) types1))
                      (methods (compute-applicable-methods-using-types gf types)))
                 (null (cdr methods))))
@@ -126,8 +125,9 @@
 ;;; or some such.
 (defmethod compute-slot-accessor-info ((slotd effective-slot-definition)
                                        type gf)
-  (let* ((name (slot-value slotd 'name))
+  (let* ((name (slot-value slotd 'name)) ; flushable?
          (class (slot-value slotd '%class)))
+    (declare (ignore name))
     (multiple-value-bind (function std-p)
         (if (eq **boot-state** 'complete)
             (get-accessor-method-function gf type class slotd)
@@ -510,7 +510,8 @@
     (with-world-lock ()
       (without-package-locks
         (unless (class-finalized-p class)
-          (let ((name (class-name class)))
+          (let ((name (class-name class))) ; flushable?
+            (declare (ignore name))
             ;; KLUDGE: This is fairly horrible.  We need to make a
             ;; full-fledged CLASSOID here, not just tell the compiler that
             ;; some class is forthcoming, because there are legitimate
@@ -1008,7 +1009,7 @@
            (nwrapper
              (cond ((null owrapper)
                     (make-wrapper nslots class))
-                   ((slot-layouts-compatible-p (wrapper-slots owrapper)
+                   ((slot-layouts-compatible-p (layout-slot-list owrapper)
                                                instance-slots class-slots custom-slots)
                     owrapper)
                    (t
@@ -1021,9 +1022,9 @@
                     (class-wrapper class)))))
       (%update-lisp-class-layout class nwrapper)
       (setf (slot-value class 'slots) eslotds
-            (wrapper-slots nwrapper) eslotds
-            (wrapper-slot-table nwrapper) (make-slot-table class eslotds)
-            (wrapper-length nwrapper) nslots
+            (layout-slot-list nwrapper) eslotds
+            (layout-slot-table nwrapper) (make-slot-table class eslotds)
+            (layout-length nwrapper) nslots
             (slot-value class 'wrapper) nwrapper)
       (style-warn-about-duplicate-slots class)
       (setf (slot-value class 'finalized-p) t)
@@ -1374,10 +1375,8 @@
                 (eq (layout-invalid owrapper) t))
         (let ((nwrapper (make-wrapper (layout-length owrapper)
                                       class)))
-          (setf (wrapper-slots nwrapper)
-                (wrapper-slots owrapper))
-          (setf (wrapper-slot-table nwrapper)
-                (wrapper-slot-table owrapper))
+          (setf (layout-slot-list nwrapper) (layout-slot-list owrapper))
+          (setf (layout-slot-table nwrapper) (layout-slot-table owrapper))
           (%update-lisp-class-layout class nwrapper)
           (setf (slot-value class 'wrapper) nwrapper)
           ;; Use :OBSOLETE instead of :FLUSH if any superclass has
@@ -1402,10 +1401,8 @@
         (if (class-has-a-forward-referenced-superclass-p class)
             (return-from make-instances-obsolete class)
             (%update-cpl class (compute-class-precedence-list class))))
-      (setf (wrapper-slots nwrapper)
-            (wrapper-slots owrapper))
-      (setf (wrapper-slot-table nwrapper)
-            (wrapper-slot-table owrapper))
+      (setf (layout-slot-list nwrapper) (layout-slot-list owrapper))
+      (setf (layout-slot-table nwrapper) (layout-slot-table owrapper))
       (%update-lisp-class-layout class nwrapper)
       (setf (slot-value class 'wrapper) nwrapper)
       (%invalidate-wrapper owrapper :obsolete nwrapper)
@@ -1486,10 +1483,10 @@
         ;;  --    --> custom    XXX
 
         (multiple-value-bind (new-instance-slots new-class-slots new-custom-slots)
-            (classify-slotds (wrapper-slots nwrapper))
+            (classify-slotds (layout-slot-list nwrapper))
           (declare (ignore new-class-slots))
           (multiple-value-bind (old-instance-slots old-class-slots old-custom-slots)
-              (classify-slotds (wrapper-slots owrapper))
+              (classify-slotds (layout-slot-list owrapper))
 
             (let ((layout (mapcar (lambda (slotd)
                                     ;; Get the names only once.
@@ -1562,9 +1559,10 @@
          (new-slots (get-slots copy))
          (safe (safe-p new-class)))
     (multiple-value-bind (new-instance-slots new-class-slots)
-        (classify-slotds (wrapper-slots new-wrapper))
+        (classify-slotds (layout-slot-list new-wrapper))
+      (declare (ignore new-class-slots))
       (multiple-value-bind (old-instance-slots old-class-slots)
-          (classify-slotds (wrapper-slots old-wrapper))
+          (classify-slotds (layout-slot-list old-wrapper))
 
         (flet ((set-value (value slotd)
                  (when safe

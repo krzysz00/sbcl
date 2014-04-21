@@ -291,7 +291,7 @@
                    #+sb-xc-host
                    (when (eql (find-symbol (symbol-name name) :cl) name)
                      (multiple-value-bind (xc-value foundp)
-                         (info :variable :xc-constant-value name)
+                         (xc-constant-value name)
                        (cond (foundp
                               (setf value xc-value))
                              ((not (eq value name))
@@ -322,7 +322,7 @@
                         string
                         #!+sb-simd-pack
                         #+sb-xc-host nil
-                        #-sb-xc-host sb!kernel:simd-pack)))
+                        #-sb-xc-host simd-pack)))
              (grovel (value)
                ;; Unless VALUE is an object which which obviously
                ;; can't contain other objects
@@ -365,6 +365,10 @@
                                      #-sb-xc-host (layout-n-untagged-slots
                                                    (%instance-ref value 0))))
                         (grovel (%instance-ref value i)))))
+                   #+sb-xc-host
+                   ((satisfies sb!kernel::xc-dumpable-structure-instance-p)
+                    (dotimes (i (%instance-length value))
+                      (grovel (%instance-ref value i))))
                    (t
                     (compiler-error
                      "Objects of type ~S can't be dumped into fasl files."

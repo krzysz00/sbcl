@@ -50,8 +50,9 @@
                 %make-structure-instance-allocator))
 (defun %make-structure-instance-allocator (dd slot-specs)
   (let ((vars (make-gensym-list (length slot-specs))))
-    (values (compile nil `(lambda (,@vars)
-                            (%make-structure-instance-macro ,dd ',slot-specs ,@vars))))))
+    (values (compile nil
+                     `(lambda (,@vars)
+                        (%make-structure-instance-macro ,dd ',slot-specs ,@vars))))))
 
 (defun %make-funcallable-structure-instance-allocator (dd slot-specs)
   (when slot-specs
@@ -112,6 +113,11 @@
              (:conc-name dd-)
              (:make-load-form-fun just-dump-it-normally)
              #-sb-xc-host (:pure t)
+             ;; When this gets called directly by !cold-init as opposed to a
+             ;; random toplevel form, the package isn't as expected yet.
+             ;; SYMBOLICATE would create junk symbols for the predicate
+             ;; and copier. NIL is the right value for them.
+             (:constructor !make-defstruct-description-no-functions (name))
              (:constructor make-defstruct-description
                            (name &aux
                                  (conc-name (symbolicate name "-"))
@@ -122,9 +128,9 @@
   ;; documentation on the structure
   (doc nil :type (or string null))
   ;; prefix for slot names. If NIL, none.
-  (conc-name nil :type (or symbol null))
+  (conc-name nil :type symbol)
   ;; the name of the primary standard keyword constructor, or NIL if none
-  (default-constructor nil :type (or symbol null))
+  (default-constructor nil :type symbol)
   ;; all the explicit :CONSTRUCTOR specs, with name defaulted
   (constructors () :type list)
   ;; name of copying function
@@ -174,14 +180,14 @@
   ;; the value of the :PURE option, or :UNSPECIFIED. This is only
   ;; meaningful if DD-CLASS-P = T.
   (pure :unspecified :type (member t nil :substructure :unspecified)))
+#!-sb-fluid (declaim (freeze-type defstruct-description))
 (def!method print-object ((x defstruct-description) stream)
   (print-unreadable-object (x stream :type t)
     (prin1 (dd-name x) stream)))
 
 ;;; Does DD describe a structure with a class?
 (defun dd-class-p (dd)
-  (member (dd-type dd)
-          '(structure funcallable-structure)))
+  (if (member (dd-type dd) '(structure funcallable-structure)) t nil))
 
 ;;; a type name which can be used when declaring things which operate
 ;;; on structure instances
@@ -232,6 +238,7 @@
                             #!+long-float complex-long-float
                             sb!vm:word))
   (read-only nil :type (member t nil)))
+#!-sb-fluid (declaim (freeze-type defstruct-slot-description))
 (def!method print-object ((x defstruct-slot-description) stream)
   (print-unreadable-object (x stream :type t)
     (prin1 (dsd-name x) stream)))
@@ -251,95 +258,6 @@
 ;;; "A lie can travel halfway round the world while the truth is
 ;;; putting on its shoes." -- Mark Twain
 
-;; information about how a slot of a given DSD-RAW-TYPE is to be accessed
-(defstruct (raw-slot-data
-            (:copier nil)
-            (:predicate nil))
-  ;; the raw slot type, or T for a non-raw slot
-  ;;
-  ;; (Non-raw slots are in the ordinary place you'd expect, directly
-  ;; indexed off the instance pointer.  Raw slots are indexed from the end
-  ;; of the instance and skipped by GC.)
-  (raw-type (missing-arg) :type (or symbol cons) :read-only t)
-  ;; What operator is used to access a slot of this type?
-  (accessor-name (missing-arg) :type symbol :read-only t)
-  (init-vop (missing-arg) :type symbol :read-only t)
-  ;; How many words are each value of this type?
-  (n-words (missing-arg) :type (and index (integer 1)) :read-only t)
-  ;; Necessary alignment in units of words.  Note that instances
-  ;; themselves are aligned by exactly two words, so specifying more
-  ;; than two words here would not work.
-  (alignment 1 :type (integer 1 2) :read-only t)
-  (comparer (missing-arg) :type function :read-only t))
-
-(defvar *raw-slot-data-list*
-  (macrolet ((make-comparer (accessor-name)
-               `(lambda (index x y)
-                  (declare (optimize speed (safety 0)))
-                  (= (,accessor-name x index)
-                     (,accessor-name y index)))))
-    (let ((double-float-alignment
-            ;; white list of architectures that can load unaligned doubles:
-            #!+(or x86 x86-64 ppc) 1
-            ;; at least sparc, mips and alpha can't:
-            #!-(or x86 x86-64 ppc) 2))
-      (list
-       (make-raw-slot-data :raw-type 'sb!vm:word
-                           :accessor-name '%raw-instance-ref/word
-                           :init-vop 'sb!vm::raw-instance-init/word
-                           :n-words 1
-                           :comparer (make-comparer %raw-instance-ref/word))
-       (make-raw-slot-data :raw-type 'single-float
-                           :accessor-name '%raw-instance-ref/single
-                           :init-vop 'sb!vm::raw-instance-init/single
-                           ;; KLUDGE: On 64 bit architectures, we
-                           ;; could pack two SINGLE-FLOATs into the
-                           ;; same word if raw slots were indexed
-                           ;; using bytes instead of words.  However,
-                           ;; I don't personally find optimizing
-                           ;; SINGLE-FLOAT memory usage worthwile
-                           ;; enough.  And the other datatype that
-                           ;; would really benefit is (UNSIGNED-BYTE
-                           ;; 32), but that is a subtype of FIXNUM, so
-                           ;; we store it unraw anyway.  :-( -- DFL
-                           :n-words 1
-                           :comparer (make-comparer %raw-instance-ref/single))
-       (make-raw-slot-data :raw-type 'double-float
-                           :accessor-name '%raw-instance-ref/double
-                           :init-vop 'sb!vm::raw-instance-init/double
-                           :alignment double-float-alignment
-                           :n-words (/ 8 sb!vm:n-word-bytes)
-                           :comparer (make-comparer %raw-instance-ref/double))
-       (make-raw-slot-data :raw-type 'complex-single-float
-                           :accessor-name '%raw-instance-ref/complex-single
-                           :init-vop 'sb!vm::raw-instance-init/complex-single
-                           :n-words (/ 8 sb!vm:n-word-bytes)
-                           :comparer (make-comparer %raw-instance-ref/complex-single))
-       (make-raw-slot-data :raw-type 'complex-double-float
-                           :accessor-name '%raw-instance-ref/complex-double
-                           :init-vop 'sb!vm::raw-instance-init/complex-double
-                           :alignment double-float-alignment
-                           :n-words (/ 16 sb!vm:n-word-bytes)
-                           :comparer (make-comparer %raw-instance-ref/complex-double))
-       #!+long-float
-       (make-raw-slot-data :raw-type long-float
-                           :accessor-name '%raw-instance-ref/long
-                           :init-vop 'sb!vm::raw-instance-init/long
-                           :n-words #!+x86 3 #!+sparc 4
-                           :comparer (make-comparer %raw-instance-ref/long))
-       #!+long-float
-       (make-raw-slot-data :raw-type complex-long-float
-                           :accessor-name '%raw-instance-ref/complex-long
-                           :init-vop 'sb!vm::raw-instance-init/complex-long
-                           :n-words #!+x86 6 #!+sparc 8
-                           :comparer (make-comparer %raw-instance-ref/complex-long))))))
-
-(defun raw-slot-words (type)
-  (let ((rsd (find type *raw-slot-data-list* :key #'raw-slot-data-raw-type)))
-    (if rsd
-        (raw-slot-data-n-words rsd)
-        (error "Invalid raw slot type: ~S" type))))
-
 ;;;; the legendary DEFSTRUCT macro itself (both CL:DEFSTRUCT and its
 ;;;; close personal friend SB!XC:DEFSTRUCT)
 
@@ -387,28 +305,32 @@
                   ((eq pure :substructure)
                    `((setf (layout-pure (classoid-layout
                                          (find-classoid ',name)))
-                           0)))))
-        ,@(let ((def-con (dd-default-constructor defstruct)))
-            (when (and def-con (not (dd-alternate-metaclass defstruct)))
-              `((setf (structure-classoid-constructor (find-classoid ',name))
-                      #',def-con))))))))
+                           0)))))))))
+
+(sb!xc:defmacro delay-defstruct-functions (name forms)
+  ;; KLUDGE: If DEFSTRUCT is not at the top-level,
+  ;; (typep x 'name) and similar forms can't get optimized
+  ;; and produce style-warnings for unknown types.
+  (if (compiler-layout-ready-p name)
+      forms
+      `(eval ',forms)))
 
 ;;; shared logic for host macroexpansion for SB!XC:DEFSTRUCT and
 ;;; cross-compiler macroexpansion for CL:DEFSTRUCT
-(defmacro !expander-for-defstruct (name-and-options
-                                   slot-descriptions
-                                   expanding-into-code-for-xc-host-p)
-  `(let ((name-and-options ,name-and-options)
-         (slot-descriptions ,slot-descriptions)
-         (expanding-into-code-for-xc-host-p
-          ,expanding-into-code-for-xc-host-p))
-     (let* ((dd (parse-defstruct-name-and-options-and-slot-descriptions
-                 name-and-options
-                 slot-descriptions))
-            (name (dd-name dd)))
-       (if (dd-class-p dd)
-           (let ((inherits (inherits-for-structure dd)))
-             `(progn
+(defun %expander-for-defstruct (name-and-options slot-descriptions
+                                expanding-into-code-for)
+  ;; The host's version of this allows three choices for 'expanding-into'
+  ;; up until such time as the DEFMACRO is seen (again) for DEFSTRUCT,
+  ;; at which point things are ok because 'early-package' will have been
+  ;; processed. The target has only one possibility.
+  (aver (member expanding-into-code-for '(:target
+                                          #-sb-xc :cold-target
+                                          #-sb-xc :host)))
+  (let* ((dd (parse-defstruct-name-and-options-and-slot-descriptions
+              name-and-options slot-descriptions))
+         (inherits (if (dd-class-p dd) (inherits-for-structure dd)))
+         (name (dd-name dd)))
+    `(progn
                 ;; Note we intentionally enforce package locks and
                 ;; call %DEFSTRUCT first, and especially before
                 ;; %COMPILER-DEFSTRUCT. %DEFSTRUCT has the tests (and
@@ -419,40 +341,46 @@
                 ;; responds to the collision with ABORT, we don't want
                 ;; %COMPILER-DEFSTRUCT to modify the definition of the
                 ;; class.
-                (with-single-package-locked-error
-                    (:symbol ',name "defining ~A as a structure"))
-                (%defstruct ',dd ',inherits (sb!c:source-location))
-                (eval-when (:compile-toplevel :load-toplevel :execute)
-                  (%compiler-defstruct ',dd ',inherits))
-                ,@(unless expanding-into-code-for-xc-host-p
-                    (append ;; FIXME: We've inherited from CMU CL nonparallel
-                            ;; code for creating copiers for typed and untyped
-                            ;; structures. This should be fixed.
-                            ;(copier-definition dd)
-                            (constructor-definitions dd)
-                            (class-method-definitions dd)))
-                ',name))
-           `(progn
-              (with-single-package-locked-error
-                  (:symbol ',name "defining ~A as a structure"))
-              (eval-when (:compile-toplevel :load-toplevel :execute)
+       ,@(when (eq expanding-into-code-for :target)
+           `((with-single-package-locked-error
+                 (:symbol ',name "defining ~A as a structure"))))
+       ,@(if (dd-class-p dd)
+             `((%defstruct ',dd ',inherits (sb!c:source-location))
+               (eval-when (:compile-toplevel :load-toplevel :execute)
+                 (%compiler-defstruct ',dd ',inherits))
+               ,@(unless (eq expanding-into-code-for :host)
+                   `((delay-defstruct-functions
+                      ,name
+                      (progn ,@(awhen (copier-definition dd) (list it))
+                             ,@(awhen (predicate-definition dd) (list it))
+                             ,@(accessor-definitions dd)))
+                ;; This must be in the same lexical environment
+                     ,@(constructor-definitions dd)
+                     ,@(class-method-definitions dd)
+                ;; Various other operations only make sense on the target SBCL.
+                     (%target-defstruct ',dd))))
+            `((eval-when (:compile-toplevel :load-toplevel :execute)
                 (setf (info :typed-structure :info ',name) ',dd))
-              (eval-when (:load-toplevel :execute)
-                (setf (info :source-location :typed-structure ',name)
-                      (sb!c:source-location)))
-              ,@(unless expanding-into-code-for-xc-host-p
+              (setf (info :source-location :typed-structure ',name)
+                    (sb!c:source-location))
+              ,@(unless (eq expanding-into-code-for :host)
                   (append (typed-accessor-definitions dd)
                           (typed-predicate-definitions dd)
                           (typed-copier-definitions dd)
                           (constructor-definitions dd)
                           (when (dd-doc dd)
                             `((setf (fdocumentation ',(dd-name dd) 'structure)
-                               ',(dd-doc dd))))))
-              ',name)))))
+                                    ',(dd-doc dd))))))))
+       ',name)))
 
+#+sb-xc-host
+(sb!xc:defmacro defstruct (name-and-options &rest slot-descriptions)
+  (%expander-for-defstruct name-and-options slot-descriptions :cold-target))
+
+#+sb-xc
 (sb!xc:defmacro defstruct (name-and-options &rest slot-descriptions)
   #!+sb-doc
-  "DEFSTRUCT {Name | (Name Option*)} {Slot | (Slot [Default] {Key Value}*)}
+  "DEFSTRUCT {Name | (Name Option*)} [Documentation] {Slot | (Slot [Default] {Key Value}*)}
    Define the structure type Name. Instances are created by MAKE-<name>,
    which takes &KEY arguments allowing initial slot values to the specified.
    A SETF'able function <name>-<slot> is defined for each slot to read and
@@ -479,13 +407,13 @@
 
    :READ-ONLY {T | NIL}
        If true, no setter function is defined for this slot."
-    (!expander-for-defstruct name-and-options slot-descriptions nil))
+  (%expander-for-defstruct name-and-options slot-descriptions :target))
 #+sb-xc-host
 (defmacro sb!xc:defstruct (name-and-options &rest slot-descriptions)
   #!+sb-doc
   "Cause information about a target structure to be built into the
   cross-compiler."
-  (!expander-for-defstruct name-and-options slot-descriptions t))
+  (%expander-for-defstruct name-and-options slot-descriptions :host))
 
 ;;;; functions to generate code for various parts of DEFSTRUCT definitions
 
@@ -665,6 +593,32 @@
 
       dd)))
 
+;;; BOA constructors is (&aux x), i.e. without the default value, the
+;;; value of the slot is unspecified, but it should signal a type
+;;; error only when it's accessed. safe-p slot in dsd determines
+;;; whether to check the type after accessing the slot.
+;;;
+;;; This was performed during boa constructor creating, but the
+;;; constructors are created after this information is used to inform
+;;; the compiler how to treat such slots.
+(defun determine-unsafe-slots (dd)
+  (loop for (name lambda-list) in (dd-constructors dd)
+        for &aux = (cdr (member '&aux lambda-list))
+        do
+        (loop with name
+              for slot in &aux
+              if (typecase slot
+                   ((cons symbol null)
+                    (setf name (car slot))
+                    t)
+                   (symbol (setf name slot)
+                    t))
+              do (let ((dsd (find name  (dd-slots dd)
+                                  :key #'dsd-name
+                                  :test #'eq)))
+                   (when dsd
+                     (setf (dsd-safe-p dsd) nil))))))
+
 ;;; Given name and options and slot descriptions (and possibly doc
 ;;; string at the head of slot descriptions) return a DD holding that
 ;;; info.
@@ -677,6 +631,7 @@
       (setf (dd-doc result) (pop slot-descriptions)))
     (dolist (slot-description slot-descriptions)
       (allocate-1-slot result (parse-1-dsd result slot-description)))
+    (determine-unsafe-slots result)
     result))
 
 ;;;; stuff to parse slot descriptions
@@ -979,13 +934,8 @@
     (setf (find-classoid (dd-name dd)) classoid)
 
     (sb!c:with-source-location (source-location)
-      (setf (layout-source-location layout) source-location))
+      (setf (layout-source-location layout) source-location))))
 
-    ;; Various other operations only make sense on the target SBCL.
-    #-sb-xc-host
-    (%target-defstruct dd layout))
-
-  (values))
 
 ;;; Return a form describing the writable place used for this slot
 ;;; in the instance named INSTANCE-NAME.
@@ -998,11 +948,8 @@
         (raw-type (dsd-raw-type dsd)))
     (if (eq raw-type t) ; if not raw slot
         `(,ref ,instance-name ,(dsd-index dsd))
-        (let* ((raw-slot-data (find raw-type *raw-slot-data-list*
-                                    :key #'raw-slot-data-raw-type
-                                    :test #'equal))
-               (raw-slot-accessor (raw-slot-data-accessor-name raw-slot-data)))
-          `(,raw-slot-accessor ,instance-name ,(dsd-index dsd))))))
+        `(,(raw-slot-data-accessor-name (raw-slot-data-or-lose raw-type))
+          ,instance-name ,(dsd-index dsd)))))
 
 ;;; Return source transforms for the reader and writer functions of
 ;;; the slot described by DSD. They should be inline expanded, but
@@ -1021,8 +968,8 @@
                 (once-only ((new-value new-value)
                             (instance instance))
                   `(,(info :setf :inverse accessor-name)
-                     ,@(subst instance 'instance accessor-args)
-                     (the ,dsd-type ,new-value))))))))
+                    ,@(subst instance 'instance accessor-args)
+                    (the ,dsd-type ,new-value))))))))
 
 ;;; Return a LAMBDA form which can be used to set a slot.
 (defun slot-setter-lambda-form (dd dsd)
@@ -1044,8 +991,7 @@
   (let ((info (layout-info (classoid-layout classoid))))
     (when (defstruct-description-p info)
       (let ((type (dd-name info)))
-        (remhash type *typecheckfuns*)
-        (setf (info :type :compiler-layout type) nil)
+        (clear-info :type :compiler-layout type)
         (undefine-fun-name (dd-copier-name info))
         (undefine-fun-name (dd-predicate-name info))
         (dolist (slot (dd-slots info))
@@ -1122,17 +1068,15 @@
     (aver (find-classoid (dd-name dd) nil))
 
     (setf (info :type :compiler-layout (dd-name dd)) layout))
-
   (values))
 
 ;;; Do (COMPILE LOAD EVAL)-time actions for the normal (not
 ;;; ALTERNATE-LAYOUT) DEFSTRUCT described by DD.
 (defun %compiler-defstruct (dd inherits)
   (declare (type defstruct-description dd))
-
   (%compiler-set-up-layout dd inherits)
 
-  (let* ((dtype (dd-declarable-type dd)))
+  (let ((dtype (dd-declarable-type dd)))
 
     (let ((copier-name (dd-copier-name dd)))
       (when copier-name
@@ -1140,7 +1084,6 @@
 
     (let ((predicate-name (dd-predicate-name dd)))
       (when predicate-name
-        (sb!xc:proclaim `(ftype (sfunction (t) boolean) ,predicate-name))
         ;; Provide inline expansion (or not).
         (ecase (dd-type dd)
           ((structure funcallable-structure)
@@ -1157,14 +1100,13 @@
           ((list vector)
            ;; Just punt. We could provide inline expansions for :TYPE
            ;; LIST and :TYPE VECTOR predicates too, but it'd be a
-           ;; little messier and we don't bother. (Does anyway use
+           ;; little messier and we don't bother. (Does anyone use
            ;; typed DEFSTRUCTs at all, let alone for high
            ;; performance?)
-           ))))
+           (sb!xc:proclaim `(ftype (sfunction (t) boolean) ,predicate-name))))))
 
     (dolist (dsd (dd-slots dd))
-      (let* ((accessor-name (dsd-accessor-name dsd))
-             (dsd-type (dsd-type dsd)))
+      (let ((accessor-name (dsd-accessor-name dsd)))
         (when accessor-name
           (let ((inherited (accessor-inherited-data accessor-name dd)))
             (cond
@@ -1172,24 +1114,17 @@
                (setf (info :function :structure-accessor accessor-name) dd)
                (multiple-value-bind (reader-designator writer-designator)
                    (slot-accessor-transforms dd dsd)
-                 (sb!xc:proclaim `(ftype (sfunction (,dtype) ,dsd-type)
-                                   ,accessor-name))
                  (setf (info :function :source-transform accessor-name)
                        reader-designator)
                  (unless (dsd-read-only dsd)
-                   (let ((setf-accessor-name `(setf ,accessor-name)))
-                     (sb!xc:proclaim
-                      `(ftype (sfunction (,dsd-type ,dtype) ,dsd-type)
-                        ,setf-accessor-name))
-                     (setf (info :function :source-transform setf-accessor-name)
-                           writer-designator)))))
+                   (setf (info :function :source-transform `(setf ,accessor-name))
+                         writer-designator))))
               ((not (= (cdr inherited) (dsd-index dsd)))
                (style-warn "~@<Non-overwritten accessor ~S does not access ~
                             slot with name ~S (accessing an inherited slot ~
                             instead).~:@>"
                            accessor-name
-                           (dsd-name dsd)))))))))
-  (values))
+                           (dsd-name dsd))))))))))
 
 ;;;; redefinition stuff
 
@@ -1626,12 +1561,18 @@
           (when auxp
             (arglist '&aux)
             (dolist (arg aux)
-              (if (proper-list-of-length-p arg 2)
-                  (let ((var (first arg)))
-                    (arglist arg)
-                    (vars var)
-                    (decls `(type ,(get-slot var) ,var)))
-                  (skipped-vars (if (consp arg) (first arg) arg)))))))
+              (typecase arg
+                ((cons symbol (cons t null))
+                 (let ((var (first arg)))
+                   (arglist arg)
+                   (vars var)
+                   (decls `(type ,(get-slot var) ,var))))
+                ((cons symbol null)
+                 (skipped-vars (first arg)))
+                (symbol
+                 (skipped-vars arg))
+                (t
+                 (error "Malformed &AUX binding specifier: ~s." arg)))))))
 
       (funcall creator defstruct (first boa)
                (arglist) (ftype-args) (decls)
@@ -1639,7 +1580,6 @@
                      for name = (dsd-name slot)
                      collect (cond ((find name (skipped-vars) :test #'string=)
                                     ;; CLHS 3.4.6 Boa Lambda Lists
-                                    (setf (dsd-safe-p slot) nil)
                                     '.do-not-initialize-slot.)
                                    ((or (find (dsd-name slot) (vars) :test #'string=)
                                         (let ((type (dsd-type slot)))
@@ -1690,6 +1630,35 @@
           (res cons)))
 
       (res))))
+
+(defun accessor-definitions (dd)
+  (loop for dsd in (dd-slots dd)
+        for accessor-name = (dsd-accessor-name dsd)
+        for place-form = (%accessor-place-form dd dsd `(the ,(dd-name dd) instance))
+        unless (accessor-inherited-data accessor-name dd)
+        collect
+        `(defun ,accessor-name (instance)
+           ,(cond ((not (dsd-type dsd))
+                   place-form)
+                  ((dsd-safe-p dsd)
+                   `(truly-the ,(dsd-type dsd) ,place-form))
+                  (t
+                   `(the ,(dsd-type dsd) ,place-form))))
+        and unless (dsd-read-only dsd)
+        collect
+        `(defun (setf ,accessor-name) (value instance)
+           (setf ,place-form (the ,(dsd-type dsd) value)))))
+
+(defun copier-definition (dd)
+  (when (dd-copier-name dd)
+    `(defun ,(dd-copier-name dd) (instance)
+       (copy-structure (the ,(dd-name dd) instance)))))
+
+(defun predicate-definition (dd)
+  (when (dd-predicate-name dd)
+    `(defun ,(dd-predicate-name dd) (object)
+       (typep object ',(dd-name dd)))))
+
 
 ;;;; instances with ALTERNATE-METACLASS
 ;;;;
@@ -1912,7 +1881,7 @@
 ;;; special enough (and simple enough) that we just build it by hand
 ;;; instead of trying to generalize the ordinary DEFSTRUCT code.
 (defun !set-up-structure-object-class ()
-  (let ((dd (make-defstruct-description 'structure-object)))
+  (let ((dd (!make-defstruct-description-no-functions 'structure-object)))
     (setf
      ;; Note: This has an ALTERNATE-METACLASS only because of blind
      ;; clueless imitation of the CMU CL code -- dunno if or why it's
@@ -1922,7 +1891,7 @@
      (dd-length dd) 1
      (dd-type dd) 'structure)
     (%compiler-set-up-layout dd)))
-(!set-up-structure-object-class)
+#+sb-xc-host(!set-up-structure-object-class)
 
 ;;; early structure predeclarations: Set up DD and LAYOUT for ordinary
 ;;; (non-ALTERNATE-METACLASS) structures which are needed early.

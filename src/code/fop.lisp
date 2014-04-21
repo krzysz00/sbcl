@@ -550,12 +550,13 @@
 (define-fop (fop-small-code 59 :stackp nil)
   (load-code (read-byte-arg) (read-halfword-arg)))
 
-(define-fop (fop-fdefinition 60)
-  (fdefinition-object (pop-stack) t))
+(define-fop (fop-fdefinition 60) ; should probably be 'fop-fdefn'
+  (find-or-create-fdefn (pop-stack)))
 
 (define-fop (fop-known-fun 65)
   (%coerce-name-to-fun (pop-stack)))
 
+#!-(or x86 x86-64)
 (define-fop (fop-sanctify-for-execution 61)
   (let ((component (pop-stack)))
     (sb!vm:sanctify-for-execution component)
@@ -646,6 +647,16 @@ a bug.~@:>")
 
 (define-fop (fop-assembler-routine 145)
   (error "cannot load assembler code except at cold load"))
+
+(define-fop (fop-symbol-tls-fixup 146)
+  (let* ((symbol (pop-stack))
+         (kind (pop-stack))
+         (code-object (pop-stack)))
+    (sb!vm:fixup-code-object code-object
+                             (read-word-arg)
+                             (ensure-symbol-tls-index symbol)
+                             kind)
+    code-object))
 
 (define-fop (fop-foreign-fixup 147)
   (let* ((kind (pop-stack))

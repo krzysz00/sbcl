@@ -1315,6 +1315,7 @@ constant shift greater than word length")))
     (inst bt x y)))
 
 (macrolet ((define-conditional-vop (tran cond unsigned not-cond not-unsigned)
+             (declare (ignore not-cond not-unsigned))
              `(progn
                 ,@(mapcar
                    (lambda (suffix cost signed)
@@ -1495,6 +1496,7 @@ constant shift greater than word length")))
                    (funfx (intern (format nil "~S-MODFX" name)))
                    (vopfxf (intern (format nil "FAST-~S-MODFX/FIXNUM=>FIXNUM" name)))
                    (vopfxcf (intern (format nil "FAST-~S-MODFX-C/FIXNUM=>FIXNUM" name))))
+               (declare (ignore vop64cf)) ; maybe someone will want it some day
                `(progn
                   (define-modular-fun ,fun64 (x y) ,name :untagged nil 64)
                   (define-modular-fun ,funfx (x y) ,name :tagged t
@@ -1781,7 +1783,7 @@ constant shift greater than word length")))
 
 #!+multiply-high-vops
 (define-vop (mulhi)
-  (:translate sb!kernel:%multiply-high)
+  (:translate %multiply-high)
   (:policy :fast-safe)
   (:args (x :scs (unsigned-reg) :target eax)
          (y :scs (unsigned-reg unsigned-stack)))
@@ -1799,7 +1801,7 @@ constant shift greater than word length")))
 
 #!+multiply-high-vops
 (define-vop (mulhi/fx)
-  (:translate sb!kernel:%multiply-high)
+  (:translate %multiply-high)
   (:policy :fast-safe)
   (:args (x :scs (any-reg) :target eax)
          (y :scs (unsigned-reg unsigned-stack)))

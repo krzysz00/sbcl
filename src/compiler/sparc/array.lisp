@@ -39,17 +39,17 @@
 
 ;;;; Additional accessors and setters for the array header.
 (define-vop (%array-dimension word-index-ref)
-  (:translate sb!kernel:%array-dimension)
+  (:translate %array-dimension)
   (:policy :fast-safe)
   (:variant array-dimensions-offset other-pointer-lowtag))
 
 (define-vop (%set-array-dimension word-index-set)
-  (:translate sb!kernel:%set-array-dimension)
+  (:translate %set-array-dimension)
   (:policy :fast-safe)
   (:variant array-dimensions-offset other-pointer-lowtag))
 
 (define-vop (array-rank-vop)
-  (:translate sb!kernel:%array-rank)
+  (:translate %array-rank)
   (:policy :fast-safe)
   (:args (x :scs (descriptor-reg)))
   (:temporary (:scs (non-descriptor-reg)) temp)
@@ -71,7 +71,7 @@
   (:vop-var vop)
   (:save-p :compute-only)
   (:generator 5
-    (let ((error (generate-error-code vop invalid-array-index-error
+    (let ((error (generate-error-code vop 'invalid-array-index-error
                                       array bound index)))
       (inst cmp index bound)
       (inst b :geu error)

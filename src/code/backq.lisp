@@ -13,6 +13,23 @@
 
 (/show0 "entering backq.lisp")
 
+;; An unquoting COMMA struct. Not used yet.
+;; Were these slots writable, the out-of-line defuns for setting them would
+;; call #'(SETF %INSTANCE-REF) provoking a warning later that %INSTANCE-REF
+;; gets a SETF macro. The warning is fatal. Read-only is what I want anyway.
+;; This is only an issue for files compiled prior to "defsetfs".
+(defstruct (comma (:constructor unquote (expr bits)))
+ (expr nil :read-only t)
+ (bits nil :read-only t :type (and unsigned-byte fixnum)))
+#+sb-xc (declaim (freeze-type comma))
+#+sb-xc-host
+(progn
+  ;; tell the host how to dump it
+  (defmethod make-load-form ((self comma) &optional environment)
+    (list 'unquote (list 'quote (comma-expr self)) (comma-bits self)))
+  ;; tell the cross-compiler that it can do :just-dump-it-normally
+  (setf (get 'comma :sb-xc-allow-dumping-instances) t))
+
 ;;; The flags passed back by BACKQUOTIFY can be interpreted as follows:
 ;;;
 ;;;   |`,|: [a] => a
@@ -215,15 +232,13 @@
 ;;; Define synonyms for the lisp functions we use, so that by using
 ;;; them, the backquoted material will be recognizable to the
 ;;; pretty-printer.
+;;; These pass-through functions all have IR1 transforms whose signatures
+;;; are more restrictive than &REST, so it's kind of weird to write
+;;;   (DEFUN BACKQ-CONS (&REST REST) (APPLY #'CONS REST))
+;;; as was previously done.
+;;; Better to say that pairs of symbols share functional bindings.
 (macrolet ((def (b-name name)
-               ;; FIXME: This function should be INLINE so that the lists
-               ;; aren't consed twice, but I ran into an optimizer bug the
-               ;; first time I tried to make this work for BACKQ-LIST. See
-               ;; whether there's still an optimizer bug, and fix it if so, and
-               ;; then make these INLINE.
-               `(defun ,b-name (&rest rest)
-                  (declare (truly-dynamic-extent rest))
-                  (apply #',name rest))))
+             `(setf (symbol-function ',b-name) #',name)))
   (def backq-list list)
   (def backq-list* list*)
   (def backq-append append)
@@ -252,10 +267,18 @@
 ;;; redefining backquote in terms of functions which are guaranteed to
 ;;; exist on the target Lisp, we ensure that backquote expansions in
 ;;; code-generating code work properly.)
-(defun !backq-cold-init ()
+
+;; A test of the ability of the cross-compiler to dump a function
+;; that references as constant a tree containing a COMMA struct.
+
+(defun !backq-cold-init (&optional (test t))
   (set-macro-character #\` #'backquote-macro)
-  (set-macro-character #\, #'comma-macro))
-#+sb-xc-host (!backq-cold-init)
+  (set-macro-character #\, #'comma-macro)
+  (when test
+    (assert (equalp (cons 'foo (unquote '*print-case* 4))
+                    (!a-random-comma-object-do-not-use)))))
+
+#+sb-xc-host (!backq-cold-init nil)
 
 ;;; The pretty-printer needs to know about our special tokens
 (defvar *backq-tokens*

@@ -25,6 +25,7 @@
 ;;; FIXME: Are there other tables that need to have entries removed?
 ;;; What about symbols of the form DEF!FOO?
 (defun !unintern-init-only-stuff ()
+  ;; FIXME: I can't see how this wouldn't converge in 1 pass to a fixed point
   (do ((any-changes? nil nil))
       (nil)
     (dolist (package (list-all-packages))
@@ -35,13 +36,6 @@
                          (string= name "*!" :end1 2 :end2 2)))
             (/show0 "uninterning cold-init-only symbol..")
             (/primitive-print name)
-            ;; FIXME: Is this (FIRST (LAST *INFO-ENVIRONMENT*)) really
-            ;; meant to be an idiom to use?  Is there a more obvious
-            ;; name for this? [e.g. (GLOBAL-ENVIRONMENT)?]
-            (do-info ((first (last *info-environment*))
-                            :name entry :class class :type type)
-              (when (eq entry symbol)
-                (clear-info class type entry)))
             (unintern symbol package)
             (setf any-changes? t)))))
     (unless any-changes?
@@ -114,7 +108,6 @@
   (show-and-call !eval-cold-init)
   (show-and-call !deadline-cold-init)
   (show-and-call thread-init-or-reinit)
-  (show-and-call !typecheckfuns-cold-init)
 
   ;; Anyone might call RANDOM to initialize a hash value or something;
   ;; and there's nothing which needs to be initialized in order for
@@ -161,6 +154,10 @@
 
   (show-and-call !constantp-cold-init)
   (show-and-call !early-proclaim-cold-init)
+  ;; Must be done before toplevel forms are invoked
+  ;; because a toplevel defstruct will need to add itself
+  ;; to the subclasses of STRUCTURE-OBJECT.
+  (show-and-call sb!kernel::!set-up-structure-object-class)
 
   ;; KLUDGE: Why are fixups mixed up with toplevel forms? Couldn't
   ;; fixups be done separately? Wouldn't that be clearer and better?
@@ -233,7 +230,7 @@
   #!-(and win32 (not sb-thread))
   (show-and-call signal-cold-init-or-reinit)
   (/show0 "enabling internal errors")
-  (setf (sb!alien:extern-alien "internal_errors_enabled" boolean) t)
+  (setf (extern-alien "internal_errors_enabled" boolean) t)
 
   (show-and-call float-cold-init-or-reinit)
 
@@ -261,7 +258,7 @@
   (setf *cold-init-complete-p* t)
 
   ; hppa heap is segmented, lisp and c uses a stub to call eachother
-  #!+hpux (sb!sys:%primitive sb!vm::setup-return-from-lisp-stub)
+  #!+hpux (%primitive sb!vm::setup-return-from-lisp-stub)
   ;; The system is finally ready for GC.
   (/show0 "enabling GC")
   (setq *gc-inhibit* nil)
@@ -355,7 +352,7 @@ process to continue normally."
     (thread-init-or-reinit)
     #!-(and win32 (not sb-thread))
     (signal-cold-init-or-reinit)
-    (setf (sb!alien:extern-alien "internal_errors_enabled" boolean) t)
+    (setf (extern-alien "internal_errors_enabled" boolean) t)
     (float-cold-init-or-reinit))
   (gc-reinit)
   (foreign-reinit)
@@ -396,18 +393,18 @@ process to continue normally."
 (defun cold-print (x)
   (labels ((%cold-print (obj depthoid)
              (if (> depthoid 4)
-                 (sb!sys:%primitive print "...")
+                 (%primitive print "...")
                  (typecase obj
                    (simple-string
-                    (sb!sys:%primitive print obj))
+                    (%primitive print obj))
                    (symbol
-                    (sb!sys:%primitive print (symbol-name obj)))
+                    (%primitive print (symbol-name obj)))
                    (cons
-                    (sb!sys:%primitive print "cons:")
+                    (%primitive print "cons:")
                     (let ((d (1+ depthoid)))
                       (%cold-print (car obj) d)
                       (%cold-print (cdr obj) d)))
                    (t
-                    (sb!sys:%primitive print (hexstr obj)))))))
+                    (%primitive print (hexstr obj)))))))
     (%cold-print x 0))
   (values))

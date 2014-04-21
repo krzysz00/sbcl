@@ -66,15 +66,9 @@
           (cond
             (rip-p
              (princ offset stream)
-             (let ((addr (+ offset (sb!disassem:dstate-next-addr dstate))))
-               ;; If MODE is :COMPUTE, the address of the access is noted,
-               ;; otherwise the contents are noted.
-               (case mode
-                 (:compute ; this does not trigger the mem-ref-hook
-                  (sb!disassem:note (lambda (s) (format s "= #x~x" addr))
-                                    dstate))
-                 (t
-                  (when (plusp addr) ; FIXME: what does this test achieve?
+             (unless (eq mode :compute)
+               (let ((addr (+ offset (sb!disassem:dstate-next-addr dstate))))
+                 (when (plusp addr) ; FIXME: what does this test achieve?
                     (let ((hook (sb!disassem:dstate-get-prop
                                  dstate :rip-relative-mem-ref-hook)))
                       (when hook
@@ -83,7 +77,7 @@
                          1 (sb!disassem::note-code-constant-absolute
                             addr dstate width))
                         (sb!disassem:maybe-note-assembler-routine
-                         addr nil dstate)))))))
+                         addr nil dstate))))))
             (firstp
              (progn
                (sb!disassem:princ16 offset stream)
@@ -95,7 +89,39 @@
                                                              dstate))))
             (t
              (princ offset stream)))))))
-  (write-char #\] stream))
+  (write-char #\] stream)
+  #!+sb-thread
+  (let ((disp (second value)))
+    (when (and (eql (first value) #.(ash (tn-offset thread-base-tn) -1))
+               (not (third value)) ; no index
+               (typep disp '(integer 0 *)) ; positive displacement
+               (sb!disassem::seg-code (sb!disassem:dstate-segment dstate)))
+      ;; Try to reverse-engineer which thread-local binding this is
+      (let* ((code (sb!disassem::seg-code (sb!disassem:dstate-segment dstate)))
+             (header-n-words
+              (ash (sap-ref-word (int-sap (get-lisp-obj-address code))
+                                 (- other-pointer-lowtag)) -8))
+             (tls-index (ash disp (- n-fixnum-tag-bits))))
+        (loop for word-num from code-constants-offset below header-n-words
+              for obj = (code-header-ref code word-num)
+              when (and (symbolp obj) (= (symbol-tls-index obj) tls-index))
+              do (return-from print-mem-ref
+                   (sb!disassem:note
+                    (lambda (stream) (format stream "tls: ~S" obj))
+                    dstate))))
+      ;; Or maybe we're looking at the 'struct thread' itself
+      (when (< disp max-interrupts)
+        (let* ((thread-slots (primitive-object-slots
+                              (find 'thread *primitive-objects*
+                                    :key #'primitive-object-name)))
+               (slot (find (ash disp (- word-shift)) thread-slots
+                           :key #'slot-offset)))
+          (when slot
+            (return-from print-mem-ref
+              (sb!disassem:note
+               (lambda (stream)
+                 (format stream "thread.~(~A~)" (slot-name slot)))
+               dstate))))))))
 
 (in-package "SB!DISASSEM")
 
@@ -153,9 +179,9 @@
   (setf (dstate-get-prop dstate :rip-relative-mem-ref-hook) nil))
 
 (defun disassemble-unboxed-data (segment stream dstate)
-  (aver (= (dstate-cur-offs dstate) (seg-opcodes-length segment)))
   (unless (< (dstate-cur-offs dstate) (seg-length segment))
     (return-from disassemble-unboxed-data))
+  (aver (= (dstate-cur-offs dstate) (seg-opcodes-length segment)))
   ;; Remove refs at addresses outside this segment and sort whatever remains.
   (let ((refs (sort (remove-if (lambda (x) (< (car x) (dstate-cur-offs dstate)))
                                (seg-unboxed-refs segment))

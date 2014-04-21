@@ -105,7 +105,7 @@
 #-sb-xc-host (defsetf char %charset)
 #-sb-xc-host (defsetf schar %scharset)
 (defsetf %array-dimension %set-array-dimension)
-(defsetf sb!kernel:%vector-raw-bits sb!kernel:%set-vector-raw-bits)
+(defsetf %vector-raw-bits %set-vector-raw-bits)
 #-sb-xc-host (defsetf symbol-value set)
 #-sb-xc-host (defsetf symbol-global-value set-symbol-global-value)
 #-sb-xc-host (defsetf symbol-plist %set-symbol-plist)
@@ -144,9 +144,17 @@
   #!+sb-doc
   "Set the handler function for an object set operation.")
 
+;; A test of the ability of the cross-compiler to dump a function
+;; that references as constant a tree containing a COMMA struct.
+;; Does not really belong here, but ensures that stays working.
+;; It is called by !backq-cold-init.
+(defun !a-random-comma-object-do-not-use ()
+  '(foo . #.(unquote '*print-case* 4)))
+
 ;;; from x86-vm.lisp
 (in-package "SB!VM")
 (defsetf context-register %set-context-register)
 (defsetf context-float-register %set-context-float-register)
+
 
 (sb!int:/show0 "leaving defsetfs.lisp")

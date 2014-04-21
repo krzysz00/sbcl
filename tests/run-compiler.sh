@@ -2,9 +2,12 @@
 
 platform="${SBCL_SOFTWARE_TYPE}-${SBCL_MACHINE_TYPE}"
 
-if [ -z "$CC" ]
-then
-    CC=gcc
+if [ -z $CC ]; then
+    if [ -x "`which cc`" ]; then
+        CC=cc
+    else
+        CC=gcc
+    fi
 fi
 
 args=
@@ -14,6 +17,7 @@ case "$platform" in
     SunOS-X86-64)  args=-m64 ;;
     Linux-X86)     args="-m32" ;;
     Linux-PowerPC) args="-m32" ;;
+    FreeBSD-X86)   args="-m32" ;;
 esac
 
 while [ $# -gt 0 ]; do

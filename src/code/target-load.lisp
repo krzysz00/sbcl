@@ -90,6 +90,13 @@
   "Load the file given by FILESPEC into the Lisp environment, returning
    T on success."
   (flet ((load-stream (stream faslp)
+           (when (and (fd-stream-p stream)
+                      (eq (sb!impl::fd-stream-fd-type stream) :directory))
+             (error 'simple-file-error
+                    :pathname (pathname stream)
+                    :format-control
+                    "Can't LOAD a directory: ~s."
+                    :format-arguments (list (pathname stream))))
            (let* (;; Bindings required by ANSI.
                   (*readtable* *readtable*)
                   (*package* (sane-package))
@@ -210,7 +217,7 @@
       (dotimes (i box-num)
         (declare (fixnum i))
         (setf (code-header-ref code (decf index)) (pop-stack)))
-      (sb!sys:without-gcing
+      (without-gcing
         (read-n-bytes *fasl-input-stream*
                       (code-instructions code)
                       0
@@ -255,12 +262,12 @@
           (when *load-code-verbose*
             (format t
                     "  obj addr=~X~%"
-                    (sb!kernel::get-lisp-obj-address code)))
+                    (get-lisp-obj-address code)))
           (setf (%code-debug-info code) (pop stuff))
           (dotimes (i box-num)
             (declare (fixnum i))
             (setf (code-header-ref code (decf index)) (pop stuff)))
-          (sb!sys:without-gcing
+          (without-gcing
            (read-n-bytes *fasl-input-stream*
                          (code-instructions code)
                          0

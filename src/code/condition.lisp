@@ -237,17 +237,17 @@
 ;;;; MAKE-CONDITION
 
 (defun allocate-condition (type &rest initargs)
-  (let* ((type (if (symbolp type)
-                   (find-classoid type nil)
-                   type))
-         (class (typecase type
-                  (condition-classoid type)
+  (let* ((classoid (if (symbolp type)
+                       (find-classoid type nil)
+                       type))
+         (class (typecase classoid
+                  (condition-classoid classoid)
                   (class
                    (return-from allocate-condition
-                     (apply #'allocate-condition (class-name type) initargs)))
+                     (apply #'allocate-condition (class-name classoid) initargs)))
                   (classoid
                    (error 'simple-type-error
-                          :datum type
+                          :datum classoid
                           :expected-type 'condition-class
                           :format-control "~S is not a condition class."
                           :format-arguments (list type)))
@@ -256,7 +256,7 @@
                           :datum type
                           :expected-type 'condition-class
                           :format-control
-                          "~s does not designate a condition class."
+                          "~S does not designate a condition class."
                           :format-arguments (list type)))))
          (condition (%make-condition-object initargs '())))
     (setf (%instance-layout condition) (classoid-layout class))
@@ -365,8 +365,8 @@
                          (condition-slot-initform-p sslot))
                    (setf (condition-slot-initform found)
                          (condition-slot-initform sslot))
-                   (setf (condition-slot-initfunction sslot)
-                         (condition-slot-initfunction found)))
+                   (setf (condition-slot-initfunction found)
+                         (condition-slot-initfunction sslot)))
                  (unless (condition-slot-allocation found)
                    (setf (condition-slot-allocation found)
                          (condition-slot-allocation sslot))))
@@ -564,22 +564,21 @@
          (eval-when (:compile-toplevel)
            (%compiler-define-condition ',name ',parent-types ',layout
                                        ',(all-readers) ',(all-writers)))
-         (eval-when (:load-toplevel :execute)
-           (%define-condition ',name
-                              ',parent-types
-                              ',layout
-                              (list ,@(slots))
-                              ,documentation
-                              (list ,@direct-default-initargs)
-                              ',(all-readers)
-                              ',(all-writers)
-                              (sb!c:source-location))
-           ;; This needs to be after %DEFINE-CONDITION in case :REPORT
-           ;; is a lambda referring to condition slot accessors:
-           ;; they're not proclaimed as functions before it has run if
-           ;; we're under EVAL or loaded as source.
-           (%set-condition-report ',name ,report)
-           ',name)))))
+         (%define-condition ',name
+                            ',parent-types
+                            ',layout
+                            (list ,@(slots))
+                            ,documentation
+                            (list ,@direct-default-initargs)
+                            ',(all-readers)
+                            ',(all-writers)
+                            (sb!c:source-location))
+         ;; This needs to be after %DEFINE-CONDITION in case :REPORT
+         ;; is a lambda referring to condition slot accessors:
+         ;; they're not proclaimed as functions before it has run if
+         ;; we're under EVAL or loaded as source.
+         (%set-condition-report ',name ,report)
+         ',name))))
 
 ;;;; various CONDITIONs specified by ANSI
 
@@ -1385,9 +1384,9 @@ handled by any other handler, it will be muffled.")
     (return-from function-file-namestring
       (sb!c:definition-source-location-namestring
           (sb!eval:interpreted-function-source-location function))))
-  (let* ((fun (sb!kernel:%fun-fun function))
-         (code (sb!kernel:fun-code-header fun))
-         (debug-info (sb!kernel:%code-debug-info code))
+  (let* ((fun (%fun-fun function))
+         (code (fun-code-header fun))
+         (debug-info (%code-debug-info code))
          (debug-source (when debug-info
                          (sb!c::debug-info-source debug-info)))
          (namestring (when debug-source
@@ -1419,7 +1418,7 @@ handled by any other handler, it will be muffled.")
   (and
    ;; There's garbage in various places when the first DEFUN runs in
    ;; cold-init.
-   sb!kernel::*cold-init-complete-p*
+   *cold-init-complete-p*
    (typep warning 'redefinition-with-defun)
    ;; Shared logic.
    (let ((name (redefinition-warning-name warning)))

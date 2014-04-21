@@ -481,7 +481,14 @@ variable: an unreadable object representing the error is printed instead.")
          (output-symbol object stream)
          (output-list object stream)))
     (instance
-     (cond ((not (and (boundp '*print-object-is-disabled-p*)
+     ;; The first case takes the above idea one step further: If an instance
+     ;; isn't a citizen yet, it has no right to a print-object method.
+     (cond ((sb!kernel::undefined-classoid-p (layout-classoid (layout-of object)))
+            ;; not only is this unreadable, it's unprintable too.
+            (print-unreadable-object (object stream :identity t)
+              (format stream "UNPRINTABLE instance of ~W"
+                      (layout-classoid (layout-of object)))))
+           ((not (and (boundp '*print-object-is-disabled-p*)
                       *print-object-is-disabled-p*))
             (print-object object stream))
            ((typep object 'structure-object)
@@ -1593,7 +1600,7 @@ variable: an unreadable object representing the error is printed instead.")
                                    ;; little unfortunate.)
                                    (load-time-value
                                     #!-long-float
-                                    (sb!kernel:make-double-float 1070810131 1352628735)
+                                    (make-double-float 1070810131 1352628735)
                                     #!+long-float
                                     (error "(log 2 10) not computed")))))))
                  (x (if (minusp ex)
@@ -1844,9 +1851,7 @@ variable: an unreadable object representing the error is printed instead.")
   nil)
 
 (defun output-fun (object stream)
-  (let* ((*print-length* 4)  ; in case we have to..
-         (*print-level* 3)  ; ..print an interpreted function definition
-         (name (%fun-name object))
+  (let* ((name (%fun-name object))
          (proper-name-p (and (legal-fun-name-p name) (fboundp name)
                              (eq (fdefinition name) object))))
     (print-unreadable-object (object stream :identity (not proper-name-p))
