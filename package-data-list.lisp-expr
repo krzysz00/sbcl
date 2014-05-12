@@ -2551,6 +2551,19 @@ SB-KERNEL) have been undone, but probably more remain."
                "WORDS"))
 
    #s(sb-cold:package-data
+      :name "SB!UNICODE"
+      :doc "public: algorithms for Unicode data"
+      :use ("CL")
+      :export ("GENERAL-CATEGORY"
+               "BIDI-CLASS"
+               "COMBINING-CLASS"
+               "DECIMAL-DIGIT"
+               "DIGIT-VALUE"
+               "NUMERIC-VALUE"
+               "MIRRORED-P"
+               "NORMALIZE-STRING"))
+
+   #s(sb-cold:package-data
       :name "SB!UNIX"
       :doc
       "private: a wrapper layer for SBCL itself to use when talking
