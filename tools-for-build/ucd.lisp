@@ -226,8 +226,9 @@
                   "Me" "Mn" "Nd" "Nl" "No" "Pc" "Pd" "Pe" "Pf" "Pi"
                   "Po" "Ps" "Sc" "Sk" "Sm" "So" "Zl" "Zp" "Zs")))
 (defparameter *bidi-classes*
-  (init-indices '("AL" "AN" "B" "BN" "CS" "EN" "ES" "ET" "L" "LRE" "LRO"
-                  "NSM" "ON" "PDF" "R" "RLE" "RLO" "S" "WS")))
+  (init-indices '("BN" "AL" "AN" "B" "CS" "EN" "ES" "ET" "L" "LRE" "LRO"
+                  "NSM" "ON" "PDF" "R" "RLE" "RLO" "S" "WS" "LRI" "RLI"
+                  "FSI" "PDI")))
 
 
 (defparameter *block-first* nil)
