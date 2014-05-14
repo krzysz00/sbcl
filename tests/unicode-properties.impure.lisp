@@ -33,9 +33,7 @@
            (digit (parse-integer %digit :junk-allowed t))
            (numeric (if (string= %numeric "") nil (read-from-string %numeric)))
            (bidi-mirrored (string= %bidi-mirrored "Y")))
-      ;; ANSI requires (name-char "BELL") to be U+0007,
-      ;; but Unicode "BELL" is U+1F514
-      (when (and char-from-name (/= cp #x1F514))
+      (when char-from-name
         (assert (char= char char-from-name)))
       (assert (string= gc (general-category char)))
       (assert (= (parse-integer ccc) (combining-class char)))
