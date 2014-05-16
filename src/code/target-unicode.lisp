@@ -13,14 +13,15 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;; Lift some internal stuff from SB-IMPL to prevent piles of packkage prefixes
-  (import 'SB!IMPL::**CHARACTER-DATABASE**)
+  (import 'SB!IMPL::**MISC-DATABASE**)
+  (import 'SB!IMPL::**CHARACTER-HIGH-PAGES**)
+  (import 'SB!IMPL::**CHARACTER-LOW-PAGES**)
   (import 'SB!IMPL::**CHARACTER-DECOMPOSITIONS**)
-  (import 'SB!IMPL::**CHARACTER-LONG-DECOMPOSITIONS**)
   (import 'SB!IMPL::**CHARACTER-PRIMARY-COMPOSITIONS**)
-  (import 'SB!IMPL::UCD-INDEX)
-  (import 'SB!IMPL::UCD-VALUE-0)
-  (import 'SB!IMPL::UCD-VALUE-1))
+  (import 'SB!IMPL::**CHARACTER-CASES**)
+  (import 'SB!IMPL::MISC-INDEX))
 
+;; FIXME: Make this less redundant
 (defparameter **special-numerics**
   '#.(with-open-file (stream
                      (merge-pathnames
@@ -28,6 +29,18 @@
                        :directory
                        '(:relative :up :up "output")
                        :name "numerics" :type "lisp-expr")
+                      sb!xc:*compile-file-truename*)
+                     :direction :input
+                     :element-type 'character)
+        (read stream)))
+
+(defparameter **special-titlecases**
+  '#.(with-open-file (stream
+                     (merge-pathnames
+                      (make-pathname
+                       :directory
+                       '(:relative :up :up "output")
+                       :name "titlecases" :type "lisp-expr")
                       sb!xc:*compile-file-truename*)
                      :direction :input
                      :element-type 'character)
@@ -48,10 +61,11 @@
      "No" "Pc" "Pd" "Pe" "Pf" "Pi" "Po" "Ps" "Sc" "Sk" "Sm" "So" "Zl" "Zp"
      "Zs")))
 
+
 (defparameter *bidi-classes*
   (reverse-ucd-indices
-   '("AL" "AN" "B" "BN" "CS" "EN" "ES" "ET" "L" "LRE" "LRO" "NSM" "ON" "PDF"
-     "R" "RLE" "RLO" "S" "WS")))
+   '("BN" "AL" "AN" "B" "CS" "EN" "ES" "ET" "L" "LRE" "LRO" "NSM" "ON"
+     "PDF" "R" "RLE" "RLO" "S" "WS" "LRI" "RLI" "FSI" "PDI")))
 
 (defun general-category (character)
   #!+sb-doc

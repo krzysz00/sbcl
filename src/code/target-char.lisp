@@ -26,6 +26,14 @@
  (defvar *unicode-character-name-database*)
  (defvar *unicode-character-name-huffman-tree*))
 
+(defun sorted-position (item list)
+  (let ((index 0))
+    (dolist (i list)
+      (cond
+        ((= item i) (return-from sorted-position index))
+        ((> item i) (return-from sorted-position nil))
+        (t (incf index))))) nil)
+
 (macrolet
     ((frob ()
        (flet ((file (name type)
@@ -43,40 +51,93 @@
                                  length :element-type '(unsigned-byte 8))))
                     (read-sequence array stream)
                     array))))
-         (let ((character-database (read-ub8-vector (file "ucd" "dat")))
+         (let ((misc-database (read-ub8-vector (file "ucdmisc" "dat")))
+               (ucd-high-pages (read-ub8-vector (file "ucdhigh" "dat")))
+               (ucd-low-pages (read-ub8-vector (file "ucdlow" "dat")))
                (decompositions (read-ub8-vector (file "decomp" "dat")))
-               (long-decompositions (read-ub8-vector (file "ldecomp" "dat")))
-               (primary-compositions (read-ub8-vector (file "comp" "dat"))))
+               (primary-compositions (read-ub8-vector (file "comp" "dat")))
+               (case-data (read-ub8-vector (file "case" "dat")))
+               (case-pages (with-open-file (s (file "casepages" "lisp-expr"))
+                             (read s))))
            `(progn
               (declaim (type (simple-array (unsigned-byte 8) (*))
-                             **character-database**
-                             **character-decompositions**
-                             **character-long-decompositions**))
-              (defglobal **character-database** ,character-database)
+                             **character-misc-database**
+                             **character-high-pages**
+                             **character-low-pages**
+                             **character-decompositions**))
+              ;; KLUDGE: All temporary values, fixed up in cold-load
+              (defglobal **character-misc-database** ,misc-database)
+              (defglobal **character-high-pages** ,ucd-high-pages)
+              (defglobal **character-low-pages** ,ucd-low-pages)
               (defglobal **character-decompositions** ,decompositions)
-              (defglobal **character-long-decompositions** ,long-decompositions)
-              ;; KLUDGE: temporary value, fixed up in cold-load
+              (defglobal **character-case-pages** ',case-pages)
               (defglobal **character-primary-compositions** ,primary-compositions)
+              (defglobal **character-cases** ,case-data)
               (defun !character-database-cold-init ()
-                (setf **character-database** ,character-database)
-                (setf **character-primary-compositions**
+                (flet ((make-ubn-vector (raw-bytes n)
+                         (let ((new-array
+                                (make-array
+                                 (/ (length raw-bytes) n)
+                                 :element-type (list 'unsigned-byte (* 8 n)))))
+                           (loop for i from 0 below (length raw-bytes) by n
+                              for element = 0 do
+                                (loop for offset from 0 below n do
+                                     (incf element
+                                           (ash (aref raw-bytes (+ i offset))
+                                                (* 8 (- n offset 1)))))
+                                (setf (aref new-array (/ i n)) element))
+                    new-array)))
+                  (setf **character-misc-database** ,misc-database
+                        **character-high-pages**
+                        (make-ubn-vector ,ucd-high-pages 2)
+                        **character-low-pages**
+                        (make-ubn-vector ,ucd-low-pages 2)
+                        **character-case-pages** ',case-pages
+                        **character-decompositions**
+                        (make-ubn-vector ,ucd-low-pages 3))
+                  (setf **character-primary-compositions**
                       (let ((table (make-hash-table))
-                            (info ,primary-compositions))
-                        (flet ((code (j)
-                                 (dpb (aref info (* 4 j))
-                                      (byte 8 24)
-                                      (dpb (aref info (+ (* 4 j) 1))
-                                           (byte 8 16)
-                                           (dpb (aref info (+ (* 4 j) 2))
-                                                (byte 8 8)
-                                                (aref info (+ (* 4 j) 3)))))))
-                          #!+sb-unicode
-                          (dotimes (i (/ (length info) 12))
-                            (setf (gethash (dpb (code (* 3 i)) (byte 21 21)
-                                                (code (1+ (* 3 i))))
-                                           table)
-                                  (code-char (code (+ (* 3 i) 2)))))
-                          table))))
+                            (info (make-ubn-vector ,primary-compositions 3)))
+                        #!+sb-unicode
+                        (dotimes (i (/ (length info) 3))
+                          (setf (gethash (dpb (aref info (* 3 i)) (byte 21 21)
+                                              (aref info (1+ (* 3 i))))
+                                          table)
+                                  (code-char (aref info (+ (* 3 i) 2)))))
+                          table)))
+                (setf **character-cases**
+                      (let* ((table
+                              (make-hash-table ;; 64 characters in each page
+                               :size (* 64 (length **character-case-pages**))
+                               :hash-function
+                               (lambda (key)
+                                 (let ((page (sorted-position 
+                                              (ash key 6) 
+                                              **character-case-pages**)))
+                                   (if page
+                                       (+ (ash page 6) (ldb (byte 6 0) key))
+                                       0)))))
+                             (info ,case-data) (index 0)
+                             (length (length info)))
+                        (labels ((read-codepoint ()
+                                   (let* ((b1 (aref info index))
+                                          (b2 (aref info (incf index)))
+                                          (b3 (aref info (incf index))))
+                                     (dpb b1 (byte 8 16)
+                                          (dpb b2 (byte 8 8) b3))))
+                                 (read-length-tagged ()
+                                   (let ((len (aref info (incf index))) ret)
+                                     (if (zerop len) (read-codepoint)
+                                         (progn
+                                           (dotimes (i len)
+                                             (push (read-codepoint) ret))
+                                           (nreverse ret))))))
+                          (loop until (>= index length)
+                             for key = (read-codepoint)
+                             for upper = (read-length-tagged)
+                             for lower = (read-length-tagged)
+                             do (setf (gethash key table) (cons upper lower))))
+                        table)))
               ,(with-open-file (stream (file "ucd-names" "lisp-expr")
                                        :direction :input
                                        :element-type 'character)
@@ -245,39 +306,31 @@
 ;;;
 ;;; The moral of all this?  Next time, don't just say "FIXME: document
 ;;; this"
-(defun ucd-index (char)
+
+(defun clear-flag (bit integer)
+  (logandc2 integer (ash 1 bit)))
+
+(defconstant +misc-width+ 6)
+
+(defun misc-index (char)
   (let* ((cp (char-code char))
          (cp-high (ash cp -8))
-         (page (aref **character-database** (+ 3168 cp-high))))
-    (+ 7520 (ash page 10) (ash (ldb (byte 8 0) cp) 2))))
-
-(declaim (ftype (sfunction (t) (unsigned-byte 11)) ucd-value-0))
-(defun ucd-value-0 (char)
-  (let ((index (ucd-index char))
-        (character-database **character-database**))
-    (dpb (aref character-database index)
-         (byte 8 3)
-         (ldb (byte 3 5) (aref character-database (+ index 1))))))
-
-(declaim (ftype (sfunction (t) (unsigned-byte 21)) ucd-value-1))
-(defun ucd-value-1 (char)
-  (let ((index (ucd-index char))
-        (character-database **character-database**))
-    (dpb (aref character-database (+ index 1))
-         (byte 5 16)
-         (dpb (aref character-database (+ index 2))
-              (byte 8 8)
-              (aref character-database (+ index 3))))))
+         (high-index (aref **character-high-pages** cp-high)))
+    (if (logbitp 15 high-index)
+        (* +misc-width+ (clear-flag 15 high-index))
+        (* +misc-width+
+           (aref **character-low-pages**
+                 (+ (* 2 (ldb (byte 8 0) cp)) (ash high-index 8)))))))
 
 (declaim (ftype (sfunction (t) (unsigned-byte 8)) ucd-general-category))
 (defun ucd-general-category (char)
-  (aref **character-database** (* 8 (ucd-value-0 char))))
+  (aref **character-misc-database** (misc-index char)))
 
 (defun ucd-decimal-digit (char)
-  (let ((decimal-digit (aref **character-database**
-                             (+ 3 (* 8 (ucd-value-0 char))))))
-    (when (< decimal-digit 10)
-      decimal-digit)))
+  (let ((digit (aref **character-misc-database**
+                     (+ 3 (misc-index char)))))
+    (when (logbitp 6 digit) ; decimalp flag
+      (ldb (byte 4 0) digit))))
 
 (defun char-code (char)
   #!+sb-doc
@@ -399,24 +452,24 @@ NIL."
 argument is an alphabetic character, A-Z or a-z; otherwise NIL."
   (< (ucd-general-category char) 5))
 
-(defun upper-case-p (char)
-  #!+sb-doc
-  "The argument must be a character object; UPPER-CASE-P returns T if the
-argument is an upper-case character, NIL otherwise."
-  (< (ucd-value-0 char) 5))
-
-(defun lower-case-p (char)
-  #!+sb-doc
-  "The argument must be a character object; LOWER-CASE-P returns T if the
-argument is a lower-case character, NIL otherwise."
-  (< 4 (ucd-value-0 char) 9))
-
 (defun both-case-p (char)
   #!+sb-doc
   "The argument must be a character object. BOTH-CASE-P returns T if the
 argument is an alphabetic character and if the character exists in both upper
 and lower case. For ASCII, this is the same as ALPHA-CHAR-P."
-  (< (ucd-value-0 char) 9))
+  (logbitp 7 (aref **character-misc-database** (+ 5 (misc-index char)))))
+
+(defun upper-case-p (char)
+  #!+sb-doc
+  "The argument must be a character object; UPPER-CASE-P returns T if the
+argument is an upper-case character, NIL otherwise."
+  (and (both-case-p char) (= (ucd-general-category char) 0)))
+
+(defun lower-case-p (char)
+  #!+sb-doc
+  "The argument must be a character object; LOWER-CASE-P returns T if the
+argument is a lower-case character, NIL otherwise."
+  (and (both-case-p char) (= (ucd-general-category char) 1)))
 
 (defun digit-char-p (char &optional (radix 10.))
   #!+sb-doc
@@ -516,8 +569,8 @@ is either numeric or alphabetic."
 (defmacro equal-char-code (character)
   (let ((ch (gensym)))
     `(let ((,ch ,character))
-      (if (< (ucd-value-0 ,ch) 5)
-          (ucd-value-1 ,ch)
+      (if (both-case-p ,ch)
+          (cdr (gethash ,ch **character-cases**))
           (char-code ,ch)))))
 
 (defun two-arg-char-equal (c1 c2)
@@ -636,15 +689,15 @@ Case is ignored."
   #!+sb-doc
   "Return CHAR converted to upper-case if that is possible. Don't convert
 lowercase eszet (U+DF)."
-  (if (< 4 (ucd-value-0 char) 9)
-      (code-char (ucd-value-1 char))
+  (if (both-case-p char)
+      (code-char (car (gethash (char-code char) **character-cases**)))
       char))
 
 (defun char-downcase (char)
   #!+sb-doc
   "Return CHAR converted to lower-case if that is possible."
-  (if (< (ucd-value-0 char) 5)
-      (code-char (ucd-value-1 char))
+  (if (both-case-p char)
+      (code-char (cdr (gethash (char-code char) **character-cases**)))
       char))
 
 (defun digit-char (weight &optional (radix 10))

@@ -467,7 +467,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
       (setf points-with-case (sort points-with-case #'<))
       (loop for cp in points-with-case
          for (upper . lower) = (gethash cp *case-mapping*) do
-           (pushnew (ash cp -8) casing-pages)
+           (pushnew (ash cp -6) casing-pages)
            (write-codepoint cp stream)
            (write-byte (if (atom upper) 0 (length upper)) stream)
            (if (atom upper) (write-codepoint upper stream)
