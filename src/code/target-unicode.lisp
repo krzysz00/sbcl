@@ -13,15 +13,16 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;; Lift some internal stuff from SB-IMPL to prevent piles of packkage prefixes
-  (import 'SB!IMPL::**MISC-DATABASE**)
+  (import 'SB!IMPL::**CHARACTER-MISC-DATABASE**)
   (import 'SB!IMPL::**CHARACTER-HIGH-PAGES**)
   (import 'SB!IMPL::**CHARACTER-LOW-PAGES**)
   (import 'SB!IMPL::**CHARACTER-DECOMPOSITIONS**)
   (import 'SB!IMPL::**CHARACTER-PRIMARY-COMPOSITIONS**)
   (import 'SB!IMPL::**CHARACTER-CASES**)
-  (import 'SB!IMPL::MISC-INDEX))
+  (import 'SB!IMPL::**CHARACTER-CASE-PAGES**)
+  (import 'SB!IMPL::MISC-INDEX)
+  (import 'SB!IMPL::CLEAR-FLAG))
 
-;; FIXME: Make this less redundant
 (defparameter **special-numerics**
   '#.(with-open-file (stream
                      (merge-pathnames
@@ -29,18 +30,6 @@
                        :directory
                        '(:relative :up :up "output")
                        :name "numerics" :type "lisp-expr")
-                      sb!xc:*compile-file-truename*)
-                     :direction :input
-                     :element-type 'character)
-        (read stream)))
-
-(defparameter **special-titlecases**
-  '#.(with-open-file (stream
-                     (merge-pathnames
-                      (make-pathname
-                       :directory
-                       '(:relative :up :up "output")
-                       :name "titlecases" :type "lisp-expr")
                       sb!xc:*compile-file-truename*)
                      :direction :input
                      :element-type 'character)
@@ -76,13 +65,13 @@
   #!+sb-doc
   "Returns the bidirectional class of a character"
   (gethash
-   (aref **character-database** (+ 1 (* 8 (ucd-value-0 character))))
+   (aref **character-misc-database** (+ 1 (misc-index character)))
    *bidi-classes*))
 
 (defun combining-class (character)
   #!+sb-doc
   "Returns the canonical combining class (CCC) of a character"
-  (aref **character-database** (+ 2 (* 8 (ucd-value-0 character)))))
+  (aref **character-misc-database** (+ 2 (misc-index character))))
 
 (defun decimal-digit (character)
   #!+sb-doc
@@ -103,8 +92,9 @@ Digit values are guaranteed to be integers between 0 and 9 inclusive.
 All characters with decimal digit values have the same digit value,
 but there are characters (such as digits of number systems without a 0 value)
 that have a digit value but no decimal digit value"
-  (let ((%digit (aref **character-database**
-                      (+ 4 (* 8 (ucd-value-0 character))))))
+  (let ((%digit (clear-flag 6
+                            (aref **character-misc-database**
+                                  (+ 3 (misc-index character))))))
     (if (< %digit 10) %digit nil)))
 
 (defun numeric-value (character)
@@ -120,73 +110,68 @@ The only constraint on the numeric value is that it be a rational number."
   #!+sb-doc
   "Returns T if the given character needs to be mirrored in bidirectional text.
 Otherwise, returns NIL."
-  (not (zerop (aref **character-database**
-                    (+ 5 (* 8 (ucd-value-0 character)))))))
+  (logbitp 5 (aref **character-misc-database**
+                    (+ 5 (misc-index character)))))
 
 
 ;;; Implements UAX#15: Normalization Forms
 (defun char-decomposition-info (char)
-  (aref **character-database** (+ 6 (* 8 (ucd-value-0 char)))))
+  (let ((value (aref **character-misc-database**
+                     (+ 4 (misc-index char)))))
+    (values (clear-flag 7 value) (logbitp 7 value))))
 
-(defun char-decomposition (char)
+(defun char-decomposition (char length)
+  ;; Caller should have gotten length from char-decomposition-info
   (let* ((cp (char-code char))
          (cp-high (ash cp -8))
          (decompositions **character-decompositions**)
-         (long-decompositions **character-long-decompositions**)
-         (index (+ #x1100
-                   (ash (aref decompositions cp-high) 10)
-                   (ash (ldb (byte 8 0) cp) 2)))
-         (v0 (aref decompositions index))
-         (v1 (aref decompositions (+ index 1)))
-         (v2 (aref decompositions (+ index 2)))
-         (v3 (aref decompositions (+ index 3)))
-         (length (dpb v0 (byte 8 3) (ldb (byte 3 5) v1)))
-         (entry (dpb (ldb (byte 5 0) v1) (byte 5 16)
-                     (dpb v2 (byte 8 8) v3))))
+         (high-page (aref **character-high-pages** cp-high))
+         (index (if (logbitp 15 high-page)
+                       (error "Decomposing a character with no decomposition.")
+                       (aref **character-low-pages**
+                             (+ 1 (* 2 (ldb (byte 8 0) cp)) (ash high-page 8)))))
+         (entry (loop for i from 0 below length
+                   collecting (aref decompositions (+ i index))))
+         (result (make-string length)))
     (if (= length 1)
-        (string (code-char entry))
-        (if (<= #xac00 cp #xd7a3)
-            ;; see Unicode 6.2, section 3-12
-            (let* ((sbase #xac00)
-                   (lbase #x1100)
-                   (vbase #x1161)
-                   (tbase #x11a7)
-                   (lcount 19)
-                   (vcount 21)
-                   (tcount 28)
-                   (ncount (* vcount tcount))
-                   (scount (* lcount ncount))
-                   (sindex (- cp sbase))
-                   (lindex (floor sindex ncount))
-                   (vindex (floor (mod sindex ncount) tcount))
-                   (tindex (mod sindex tcount))
-                   (result (make-string length)))
-              (declare (ignore scount))
-              (setf (char result 0) (code-char (+ lbase lindex)))
-              (setf (char result 1) (code-char (+ vbase vindex)))
-              (when (> tindex 0)
-                (setf (char result 2) (code-char (+ tbase tindex))))
-              result)
-            (let ((result (make-string length))
-                  (e (* 4 entry)))
-              (dotimes (i length result)
-                (let ((code (dpb (aref long-decompositions (+ e 1))
-                                 (byte 8 16)
-                                 (dpb (aref long-decompositions (+ e 2))
-                                      (byte 8 8)
-                                      (aref long-decompositions (+ e 3))))))
-                  (setf (char result i) (code-char code)))
-                (incf e 4)))))))
+        (string (code-char (car entry)))
+        (progn
+          (if (<= #xac00 cp #xd7a3)
+              ;; see Unicode 6.2, section 3-12
+              (let* ((sbase #xac00)
+                     (lbase #x1100)
+                     (vbase #x1161)
+                     (tbase #x11a7)
+                     (lcount 19)
+                     (vcount 21)
+                     (tcount 28)
+                     (ncount (* vcount tcount))
+                     (scount (* lcount ncount))
+                     (sindex (- cp sbase))
+                     (lindex (floor sindex ncount))
+                     (vindex (floor (mod sindex ncount) tcount))
+                     (tindex (mod sindex tcount))
+                     (result (make-string length)))
+                (declare (ignore scount))
+                (setf (char result 0) (code-char (+ lbase lindex)))
+                (setf (char result 1) (code-char (+ vbase vindex)))
+                (when (> tindex 0)
+                  (setf (char result 2) (code-char (+ tbase tindex)))))
+              (loop for i from 0 for code in entry
+                 do (setf (char result i) (code-char code))))
+          result))))
 
 (defun decompose-char (char)
-  (if (= (char-decomposition-info char) 0)
-      (string char)
-      (char-decomposition char)))
+  (let ((info (char-decomposition-info char)))
+    (if (= info 0)
+        (string char)
+        (char-decomposition char info))))
 
 (defun decompose-string (string &optional (kind :canonical))
   (declare (type (member :canonical :compatibility) kind))
   (flet ((canonical (char)
-           (= 1 (char-decomposition-info char)))
+           (multiple-value-bind (len compat) (char-decomposition-info char)
+             (and (/= len 0) (not compat))))
          (compat (char)
            (/= 0 (char-decomposition-info char))))
     (let (result

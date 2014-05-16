@@ -134,7 +134,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
           ;; unallocated characters have a GC index of 31 (not colliding
           ;; with any other GC), aren't digits, aren't interestingly bidi,
           ;; and don't decompose, combine, or have case.
-          '(31 0 0 255 0 0))
+          '(31 0 0 128 0 0))
          (unallocated-index (apply #'hash-misc unallocated-misc))
          (unallocated-ucd (make-ucd :misc unallocated-index :decomp 0)))
     (loop for code-point from 0 to #x10FFFF do ; Flood-fil unallocated codepoints
@@ -224,7 +224,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                                (error "unknown bidirectional class ~A"
                                       bidi-class)))
                (ccc (parse-integer canonical-combining-class))
-               (digit-index (if (string= "" digit) 255
+               (digit-index (if (string= "" digit) 128 ; non-digits have high bit
                                 (let ((%digit (parse-integer digit)))
                                   (if (string= digit decimal-digit)
                                       ;; decimal-digit-p is in bit 6
@@ -404,12 +404,13 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                                :if-does-not-exist :create)
       ;; Output either the index into the misc array (if all the points in the
       ;; high-page have the same misc value) or an index into the law-pages
-      ;; array / 255. For indexes into the misc array, set bit 15 (high bit).
+      ;; array / 256. For indexes into the misc array, set bit 15 (high bit).
       ;; We should never have that many misc entries, so that's not a problem.
-      ;; If Unicode ever allocates a decomposing <First>/<Last> block (the only
-      ;; way to get a high page that outputs as the same and has a non-zero
-      ;; decomposition-index, which there's nowhere to store now), find me,
-      ;; slap me with a fish, and have fun fixing this mess.
+
+      ;; If Unicode ever allocates an all-decomposing <First>/<Last> block (the
+      ;; only way to get a high page that outputs as the same and has a
+      ;; non-zero decomposition-index, which there's nowhere to store now),
+      ;; find me, slap me with a fish, and have fun fixing this mess.
       (loop with low-pages-index = 0
          for high-page from 0 to (ash #x10FFFF -8)
          for uniq-ucd-entries = nil do

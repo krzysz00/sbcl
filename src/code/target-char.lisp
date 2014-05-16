@@ -31,7 +31,7 @@
     (dolist (i list)
       (cond
         ((= item i) (return-from sorted-position index))
-        ((> item i) (return-from sorted-position nil))
+        ((< item i) (return-from sorted-position nil))
         (t (incf index))))) nil)
 
 (macrolet
@@ -111,8 +111,8 @@
                                :size (* 64 (length **character-case-pages**))
                                :hash-function
                                (lambda (key)
-                                 (let ((page (sorted-position 
-                                              (ash key 6) 
+                                 (let ((page (sorted-position
+                                              (ash key 6)
                                               **character-case-pages**)))
                                    (if page
                                        (+ (ash page 6) (ldb (byte 6 0) key))
