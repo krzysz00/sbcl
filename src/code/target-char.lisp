@@ -61,10 +61,7 @@
                              (read s))))
            `(progn
               (declaim (type (simple-array (unsigned-byte 8) (*))
-                             **character-misc-database**
-                             **character-high-pages**
-                             **character-low-pages**
-                             **character-decompositions**))
+                              **character-misc-database**))
               ;; KLUDGE: All temporary values, fixed up in cold-load
               (defglobal **character-misc-database** ,misc-database)
               (defglobal **character-high-pages** ,ucd-high-pages)
@@ -102,9 +99,9 @@
                         (dotimes (i (/ (length info) 3))
                           (setf (gethash (dpb (aref info (* 3 i)) (byte 21 21)
                                               (aref info (1+ (* 3 i))))
-                                          table)
-                                  (code-char (aref info (+ (* 3 i) 2)))))
-                          table)))
+                                         table)
+                                (code-char (aref info (+ (* 3 i) 2)))))
+                        table)))
                 (setf **character-cases**
                       (let* ((table
                               (make-hash-table ;; 64 characters in each page
@@ -123,10 +120,12 @@
                                    (let* ((b1 (aref info index))
                                           (b2 (aref info (incf index)))
                                           (b3 (aref info (incf index))))
+                                     (incf index)
                                      (dpb b1 (byte 8 16)
                                           (dpb b2 (byte 8 8) b3))))
                                  (read-length-tagged ()
-                                   (let ((len (aref info (incf index))) ret)
+                                   (let ((len (aref info index)) ret)
+                                     (incf index)
                                      (if (zerop len) (read-codepoint)
                                          (progn
                                            (dotimes (i len)
@@ -136,8 +135,8 @@
                              for key = (read-codepoint)
                              for upper = (read-length-tagged)
                              for lower = (read-length-tagged)
-                             do (setf (gethash key table) (cons upper lower))))
-                        table)))
+                             do (/hexstr index) (setf (gethash key table) (cons upper lower)) (/show0 "Next iteration")))
+                        (/show0 "Table is:") (/hexstr table) table)))
               ,(with-open-file (stream (file "ucd-names" "lisp-expr")
                                        :direction :input
                                        :element-type 'character)
@@ -320,7 +319,7 @@
         (* +misc-width+ (clear-flag 15 high-index))
         (* +misc-width+
            (aref **character-low-pages**
-                 (+ (* 2 (ldb (byte 8 0) cp)) (ash high-index 8)))))))
+                 (* 2 (+ (ldb (byte 8 0) cp) (ash high-index 8))))))))
 
 (declaim (ftype (sfunction (t) (unsigned-byte 8)) ucd-general-category))
 (defun ucd-general-category (char)
