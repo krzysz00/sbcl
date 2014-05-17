@@ -680,8 +680,9 @@ elif [ "$sbcl_arch" = "arm" ]; then
     # possibly VFPv2 and higher only), but we'll leave the obvious
     # hooks in for someone to add the support later.
     printf ' :arm-vfp :arm-vfpv2' >> $ltf
-    printf ' :ash-right-vops' >> $ltf
+    printf ' :ash-right-vops :multiply-high-vops :symbol-info-vops' >> $ltf
     printf ' :stack-allocatable-lists :stack-allocatable-fixed-objects' >> $ltf
+    printf ' :stack-allocatable-vectors :stack-allocatable-closures' >> $ltf
 else
     # Nothing need be done in this case, but sh syntax wants a placeholder.
     echo > /dev/null

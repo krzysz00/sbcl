@@ -46,7 +46,7 @@
 
 (define-vop (fast-negate/signed signed-unop)
   (:translate %negate)
-  (:generator 1
+  (:generator 2
     (inst rsb res x 0)))
 
 (define-vop (fast-lognot/fixnum signed-unop)
@@ -263,9 +263,26 @@
   (:policy :fast-safe)
   (:args (number :scs (unsigned-reg) :target result))
   (:info amount)
-  (:arg-types unsigned-num (:constant unsigned-byte))
+  (:arg-types unsigned-num (:constant integer))
   (:results (result :scs (unsigned-reg)))
   (:result-types unsigned-num)
+  (:note "inline ASH")
+  (:generator 3
+    (cond ((< -32 amount 32)
+           (if (plusp amount)
+               (inst mov result (lsl number amount))
+               (inst mov result (lsr number (- amount)))))
+          (t
+           (inst mov result 0)))))
+
+(define-vop (fast-ash-c/signed=>signed)
+  (:translate ash)
+  (:policy :fast-safe)
+  (:args (number :scs (signed-reg) :target result))
+  (:info amount)
+  (:arg-types signed-num (:constant integer))
+  (:results (result :scs (signed-reg)))
+  (:result-types signed-num)
   (:note "inline ASH")
   (:generator 3
     (cond ((< -32 amount 32)
@@ -277,6 +294,10 @@
 
 (define-vop (fast-ash-left-mod32-c/unsigned=>unsigned
              fast-ash-c/unsigned=>unsigned)
+  (:translate ash-left-mod32))
+
+(define-vop (fast-ash-left-mod32-c/signed=>signed
+             fast-ash-c/signed=>signed)
   (:translate ash-left-mod32))
 
 (define-vop (fast-ash/signed/unsigned)
@@ -705,7 +726,7 @@
           ((= width 32)
            (move r x))
           (t
-           (let ((delta (- n-word-bits (print width))))
+           (let ((delta (- n-word-bits width)))
              (inst mov r (lsl x delta))
              (inst mov r (asr r delta)))))))
 
@@ -827,6 +848,33 @@
   (:result-types unsigned-num unsigned-num)
   (:generator 1
     (inst umull lo hi x y)))
+
+#!+multiply-high-vops
+(define-vop (mulhi)
+  (:translate %multiply-high)
+  (:policy :fast-safe)
+  (:args (x :scs (unsigned-reg) :target hi)
+         (y :scs (unsigned-reg)))
+  (:arg-types unsigned-num unsigned-num)
+  (:temporary (:sc unsigned-reg) lo)
+  (:results (hi :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:generator 20
+    (inst umull lo hi x y)))
+
+#!+multiply-high-vops
+(define-vop (mulhi/fx)
+  (:translate %multiply-high)
+  (:policy :fast-safe)
+  (:args (x :scs (any-reg) :target hi)
+         (y :scs (unsigned-reg)))
+  (:arg-types positive-fixnum unsigned-num)
+  (:temporary (:sc any-reg) lo)
+  (:results (hi :scs (any-reg)))
+  (:result-types positive-fixnum)
+  (:generator 15
+    (inst umull lo hi x y)
+    (inst bic hi hi fixnum-tag-mask)))
 
 (define-vop (bignum-lognot lognot-mod32/unsigned=>unsigned)
   (:translate sb!bignum:%lognot))

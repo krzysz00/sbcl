@@ -182,12 +182,14 @@ This is SETFable."
                        ;; it could just save and restore the number-stack pointer once,
                        ;; instead of doing multiple decrements if there are multiple bindings.
                        #!-(or x86 x86-64)
-                       `((let (,var)
-                           (unwind-protect
-                               (progn
-                                 (setf ,var (make-local-alien ',info))
-                                 (let ((,var ,var))
-                                   ,@body-forms))
+                       `((let ((,var (make-local-alien ',info)))
+                           (multiple-value-prog1
+                               (progn ,@body-forms)
+                             ;; No need for unwind protect here, since
+                             ;; allocation involves modifying NSP, and
+                             ;; NSP is saved and restored during NLX.
+                             ;; And in non-transformed case it
+                             ;; performs finalization.
                              (dispose-local-alien ',info ,var))))))))))))
     (/show "revised" body)
     (verify-local-auxiliaries-okay)
