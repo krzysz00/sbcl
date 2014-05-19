@@ -500,7 +500,7 @@ The result string is not guaranteed to have the same length as the input."
            (between #xE0002 cp #xE001F)
            (between #xE0080 cp #xE00FF)) :control)
       ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
-      ((and (or (string= gc "Ms")
+      ((and (or (string= gc "Mc")
                 (member cp '(#x0E33 #x0EB3)))
             (not (member cp not-spacing-mark))) :spacing-mark)
       (t (hangul-syllable-type char)))))
