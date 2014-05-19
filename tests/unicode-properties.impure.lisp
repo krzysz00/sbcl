@@ -57,3 +57,32 @@
             do (test-line line)))))
 
 (test-property-reads)
+
+(defun codepoint-or-range (string)
+  (flet ((parse (str) (parse-integer str :radix 16 :junk-allowed t)))
+    (let ((parts (remove "" (split-string string #\.) :test #'string=)))
+      (if (cdr parts)
+          (loop for i from (parse (car parts)) to (parse (cadr parts)) collect i)
+          (mapcar #'parse parts)))))
+
+(defun test-hangul-line (line)
+  (destructuring-bind (%codepoints value) (split-string line #\;)
+    (let ((codepoints (codepoint-or-range %codepoints))
+          (expected (read-from-string
+                     (substitute #\: #\Space value :count 1) t nil
+                     :end (position #\# value))))
+      (loop for i in codepoints do
+           (unless (eql expected (hangul-syllable-type (code-char i)))
+             (error "Character ~S has the wrong Hangul syllable type" (code-char i)))))))
+
+(defun test-hangul-syllable-type ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "data/HangulSyllableType.txt" :external-format :ascii)
+    (with-test (:name (:hangul-syllable-type)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-hangul-line line)))))
+
+(test-hangul-syllable-type)

@@ -113,6 +113,25 @@ Otherwise, returns NIL."
   (logbitp 5 (aref **character-misc-database**
                     (+ 5 (misc-index character)))))
 
+(defun hangul-syllable-type (character)
+  #!+sb-doc
+  "Returns the Hangul syllable type of the given character.
+The syllable type can be one of :L, :V, :T, :LV, or :LVT.
+If the character is not a Hangul syllable or Jamo, returns NIL"
+  (let ((cp (char-code character)))
+    (cond
+      ((or
+        (and (<= #x1100 cp) (<= cp #x115f))
+        (and (<= #xa960 cp) (<= cp #xa97c))) :L)
+      ((or
+        (and (<= #x1160 cp) (<= cp #x11a7))
+        (and (<= #xd7B0 cp) (<= cp #xd7C6))) :V)
+      ((or
+        (and (<= #x11a8 cp) (<= cp #x11ff))
+        (and (<= #xd7c8 cp) (<= cp #xd7fb))) :T)
+      ((and (<= #xac00 cp) (<= cp #xd7a3))
+       (if (= 0 (rem (- cp #xac00) 28)) :LV :LVT)))))
+
 
 ;;; Implements UAX#15: Normalization Forms
 (defun char-decomposition-info (char)
@@ -208,20 +227,27 @@ Otherwise, returns NIL."
          (go again)))
     (apply 'concatenate 'string (nreverse result))))
 
+(defun composition-hangul-syllable-type (cp)
+  (cond
+    ((and (<= #x1100 cp) (<= cp #x1112)) :L)
+    ((and (<= #x1161 cp) (<= cp #x1175)) :V)
+    ((and (<= #x11a8 cp) (<= cp #x11c2)) :T)
+    ((and (<= #xac00 cp) (<= cp #.(+ #xac00 11171)))
+     (if (= 0 (rem (- cp #xac00) 28)) :LV :LVT))))
+
 (defun primary-composition (char1 char2)
   (let ((c1 (char-code char1))
         (c2 (char-code char2)))
     (cond
       ((gethash (dpb (char-code char1) (byte 21 21) (char-code char2))
                 **character-primary-compositions**))
-      ((and (<= #x1100 c1) (<= c1 #x1112)
-            (<= #x1161 c2) (<= c2 #x1175))
+      ((and (eql (composition-hangul-syllable-type c1) :L)
+            (eql (composition-hangul-syllable-type c2) :V))
        (let ((lindex (- c1 #x1100))
              (vindex (- c2 #x1161)))
          (code-char (+ #xac00 (* lindex 588) (* vindex 28)))))
-      ((and (<= #xac00 c1) (<= c1 #.(+ #xac00 11171))
-            (<= #x11a8 c2) (<= c2 #x11c2)
-            (= 0 (rem (- c1 #xac00) 28)))
+      ((and (eql (composition-hangul-syllable-type c1) :LV)
+            (eql (composition-hangul-syllable-type c2) :T))
        (code-char (+ c1 (- c2 #x11a7)))))))
 
 ;;; This implements a sequence data structure, specialized for
@@ -441,3 +467,8 @@ Casefolding remove case information in a way that allaws the results to be used
 for case-insensitive comparisons.
 The result string is not guaranteed to have the same length as the input."
   (string-somethingcase #'char-foldcase string))
+
+
+;;; Unicode break algorithms
+
+
