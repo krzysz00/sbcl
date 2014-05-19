@@ -91,7 +91,7 @@
                         (make-ubn-vector ,ucd-low-pages 2)
                         **character-case-pages** ',case-pages
                         **character-decompositions**
-                        (make-ubn-vector ,ucd-low-pages 3))
+                        (make-ubn-vector ,decompositions 3))
                   (setf **character-primary-compositions**
                       (let ((table (make-hash-table))
                             (info (make-ubn-vector ,primary-compositions 3)))
@@ -251,66 +251,74 @@
 
 ;;;; UCD accessor functions
 
-;;; The first (* 8 396) => 3168 entries in **CHARACTER-DATABASE**
-;;; contain entries for the distinct character attributes:
-;;; specifically, indexes into the GC kinds, Bidi kinds, CCC kinds,
-;;; the decimal digit property, the digit property and the
-;;; bidi-mirrored boolean property.  (There are two spare bytes for
-;;; other information, should that become necessary)
+;;; The character database is made of several arrays.
+;;; **CHARACTER-MISC-DATABASE** is an array of bytes that encode character
+;;; attributes. Each entry in the misc database is +misc-width+ (currently 6)
+;;; bytes wide. Within each entry, the bytes represent: general category, BIDI
+;;; class, canonical combining class, digit value, decomposition info, and
+;;; other flags, respectively. Several of the entries have additional
+;;; information encoded in them at the bit level. The digit value field is
+;;; equal to 128 (has only its high bit set) if characters with that set of
+;;; attribute are not digits. Bit 6 is set if that entry encodes decimal
+;;; digits, that is, characters that are DIGIT-CHAR-P. The rest of the value is
+;;; the digit value of characters with that entry. Decomposition info contains
+;;; the length of the decomposition of characters with that entry, and also
+;;; sets its high bit if the decompositions are compatibility decompositions.
+;;; The other flags byte encodes boolean properties. Bit 7 is set if the
+;;; entry's characters are BOTH-CASE-P in the Common Lisp sense. Bit 6 is set
+;;; if the entry's characters hav a defined case transformation in Unicode. Bit
+;;; 5 is set if the characters have the property BIDI_Mirrored=Y. Bits 4-0 are
+;;; currently unused.
 ;;;
-;;; the next (ash #x110000 -8) entries contain single-byte indexes
-;;; into a table of 256-element 4-byte-sized entries.  These entries
-;;; follow directly on, and are of the form
-;;; {attribute-index[11b],transformed-code-point[21b]}x256, where the
-;;; attribute index is an index into the miscellaneous information
-;;; table, and the transformed code point is the code point of the
-;;; simple mapping of the character to its lowercase or uppercase
-;;; equivalent, as appropriate and if any.
+;;; To find which entry in **CHARACTER-MISC-DATABASE** encodes a character's
+;;; attributes, first index **CHARACTER-HIGH-PAGES** (an array of 16-bit
+;;; values) with the high 13 bits of the character's codepoint. If the result
+;;; value has its high bit set, the character is in a "compressed page". To
+;;; find the misc entry number, simply clear the high bit. If the high bit is
+;;; not set, the misc entry number must be looked up in
+;;; **CHARACTER-LOW-PAGES**, which is an array of 16-bit values. Each entry in
+;;; the array consists of two such values, the misc entry number and the
+;;; decomposition index. To find the misc entry number, index into
+;;; **CHARACTER-LOW-PAGES** using the value retreived from
+;;; **CHARACTER-HIGH-PAGES** (shifted left 8 bits) plus the low 8 bits of the
+;;; codepoint, all times two to account for the widtth of the entries. The
+;;; value in **CHARACTER-LOW-PAGES** at this point is the misc entry number. To
+;;; transform a misc entry number into an index into
+;;; **CHARACTER-MISC-DATABASE**, multiply it by +misc-width*. This gives the
+;;; index of the start of the charater's misc entry in
+;;; **CHARACTER-XISC_DATABASE**.
 ;;;
-;;; I feel the opacity of the above suggests the need for a diagram:
+;;; To look up a character's decomposition, first retreive its
+;;; decomposition-info from the misc database as described above. If the
+;;; decomposition info is not 0, the character has a decomposition with a
+;;; length given by the decomposition info with the high bit (which indicates
+;;; compatibility/canonical status) cleared. To find the decomposition, move
+;;; one value past the character's misc entry number in
+;;; **CHARACTER-LOW-DATABASE**, which gives an index into
+;;; **CHARACTER-DECOMPOSITIONS**. The next LENGTH values in
+;;; **CHARACTER-DECOMPOSITIONS** (an array of codepoints), starting at this
+;;; index, are the decomposition of the character. This proceduce does not
+;;; apply to Hangul syllables, which have their own decomposition algorithm.
 ;;;
-;;;         C  _______________________________________
-;;;           /                                       \
-;;;          L                                         \
-;;;  [***************|=============================|--------...]
-;;;                 (a)      \                       _
-;;;                         A \______________________/| B
+;;; Case information is stored in **CHARACTER-CASES**, a hash table that maps a
+;;; character's codepoint to (cons uppercase lowercase). Uppercase and
+;;; lowercase are either a single codepoint, which is the upper- or lower-case
+;;; of the given character, or a list of codepoints which taken as a whole are
+;;; the upper- or lower-case. These case lists are only used in Unicode case
+;;; transformations, not in Common Lisp ones.
 ;;;
-;;; To look up information about a character, take the high 13 bits of
-;;; its code point, and index the character database with that and a
-;;; base of 3168 (going past the miscellaneous information[*], so
-;;; treating (a) as the start of the array).  This, labelled A, gives
-;;; us another index into the detailed pages[-], which we can use to
-;;; look up the details for the character in question: we add the low
-;;; 8 bits of the character, shifted twice (because we have four-byte
-;;; table entries) to 1024 times the `page' index, with a base of 7520
-;;; to skip over everything else.  This gets us to point B.  If we're
-;;; after a transformed code point (i.e. an upcase or downcase
-;;; operation), we can simply read it off now, beginning with an
-;;; offset of 11 bits from point B in some endianness; if we're
-;;; looking for miscellaneous information, we take the 11-bit value at
-;;; B, and index the character database once more to get to the
-;;; relevant miscellaneous information.
+;;; Similarly, composition information is stored in **CHARACTER-COMPOSITIONS**,
+;;; which is a hash table of codepoints indexed by (+ (ash codepoint1 21)
+;;; codepoint2).
 ;;;
-;;; As an optimization to the common case (pun intended) of looking up
-;;; case information for a character, the entries in C above are
-;;; sorted such that the characters which are UPPER-CASE-P in CL terms
-;;; have index values lower than all others, followed by those which
-;;; are LOWER-CASE-P in CL terms; this permits implementation of
-;;; character case tests without actually going to the trouble of
-;;; looking up the value associated with the index.  (Actually, this
-;;; isn't just a speed optimization; the information about whether a
-;;; character is BOTH-CASE-P is used just in the ordering and not
-;;; explicitly recorded in the database).
-;;;
-;;; The moral of all this?  Next time, don't just say "FIXME: document
-;;; this"
+;;; The moral of all this? Next time, don't just say "FIXME: document this"
 
 (defun clear-flag (bit integer)
   (logandc2 integer (ash 1 bit)))
 
 (defconstant +misc-width+ 6)
 
+(declaim (ftype (sfunction (t) (unsigned-byte 16)) misc-index))
 (defun misc-index (char)
   (let* ((cp (char-code char))
          (cp-high (ash cp -8))
@@ -569,7 +577,7 @@ is either numeric or alphabetic."
   (let ((ch (gensym)))
     `(let ((,ch ,character))
       (if (both-case-p ,ch)
-          (cdr (gethash ,ch **character-cases**))
+          (cdr (gethash (char-code ,ch) **character-cases**))
           (char-code ,ch)))))
 
 (defun two-arg-char-equal (c1 c2)

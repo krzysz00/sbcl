@@ -67,7 +67,7 @@
        for line = (read-line s nil nil) while line
        when (and (> (length line) 0) (char/= (char line 0) #\#))
        do (push (parse-integer line :end (position #\Space line) :radix 16)
-                result)))
+                result) finally (return result)))
   "Characters that are excluded from composition according to UAX#15")
 
 (defparameter *different-titlecases* nil)
@@ -254,7 +254,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                 (setf decomposition
                       (list (cdr (assoc code-point *decomposition-corrections*)))))
               (setf decomposition-info
-                    (+ (length decomposition) (if compatibility-p 127 0)))
+                    (+ (length decomposition) (if compatibility-p 128 0)))
               (unless (logbitp 7 decomposition-info)
                 ;; Primary composition excludes:
                 ;; * singleton decompositions;

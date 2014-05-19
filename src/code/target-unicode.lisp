@@ -126,12 +126,11 @@ Otherwise, returns NIL."
          (cp-high (ash cp -8))
          (decompositions **character-decompositions**)
          (high-page (aref **character-high-pages** cp-high))
-         (index (if (logbitp 15 high-page)
-                       (error "Decomposing a character with no decomposition.")
-                       (aref **character-low-pages**
-                             (+ 1 (* 2 (ldb (byte 8 0) cp)) (ash high-page 8)))))
-         (entry (loop for i from 0 below length
-                   collecting (aref decompositions (+ i index))))
+         (index (unless (logbitp 15 high-page) ;; Hangul syllable
+                  (aref **character-low-pages**
+                        (+ 1 (* 2 (+ (ldb (byte 8 0) cp) (ash high-page 8)))))))
+         (entry (when index (loop for i from 0 below length
+                               collecting (aref decompositions (+ i index)))))
          (result (make-string length)))
     (if (= length 1)
         (string (code-char (car entry)))
@@ -150,13 +149,13 @@ Otherwise, returns NIL."
                      (sindex (- cp sbase))
                      (lindex (floor sindex ncount))
                      (vindex (floor (mod sindex ncount) tcount))
-                     (tindex (mod sindex tcount))
-                     (result (make-string length)))
+                     (tindex (mod sindex tcount)))
                 (declare (ignore scount))
                 (setf (char result 0) (code-char (+ lbase lindex)))
                 (setf (char result 1) (code-char (+ vbase vindex)))
-                (when (> tindex 0)
-                  (setf (char result 2) (code-char (+ tbase tindex)))))
+                (if (> tindex 0)
+                  (setf (char result 2) (code-char (+ tbase tindex)))
+                  (setf result (subseq result 0 2)))) ; Remove trailing #\Nul
               (loop for i from 0 for code in entry
                  do (setf (char result i) (code-char code))))
           result))))
