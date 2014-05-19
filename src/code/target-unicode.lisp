@@ -471,4 +471,62 @@ The result string is not guaranteed to have the same length as the input."
 
 ;;; Unicode break algorithms
 
+(defun between (lower-bound item upper-bound)
+  (and (<= lower-bound item) (<= item upper-bound)))
 
+(defun grapheme-break-type (char)
+  (let ((cp (when char (char-code char)))
+        (gc (when char (general-category char)))
+        (special-extend
+         '(#x09BE #x09D7 #x0B3E #x0B57 #x0BBE #x0BD7 #x0CC2 #x0CD5 #x0CD6
+           #x0D3E #x0D57 #x0DCF #x0DDF #x200C #x200D #x302E #x302F #xFF9E
+           #xFF9F #x1D165 #x1D16E #x1D16F #x1D170 #x1D171 #x1D172))
+        (not-spacing-mark
+         '(#x102B #x102C #x1038 #x1062 #x1063 #x1064 #x1067 #x1068 #x1069
+           #x106A #x106B #x106C #x106D #x1083 #x1087 #x1088 #x1089 #x108A
+           #x108B #x108C #x108F #x109A #x109B #x109C #x19B0 #x19B1 #x19B2
+           #x19B3 #x19B4 #x19B8 #x19B9 #x19BB #x19BC #x19BD #x19BE #x19BF
+           #x19C0 #x19C8 #x19C9 #x1A61 #x1A63 #x1A64 #xAA7B)))
+    (cond
+      ((not char) nil)
+      ((= cp 10) :LF)
+      ((= cp 13) :CR)
+      ((or (member gc '("Mn" "Me") :test #'string=)
+           (member cp special-extend)) :extend)
+      ((or (member gc '("Zl" "Zp" "Cc" "Cs" "Cf"))
+           ;; From Cn and Default_Ignorable_Code_Point
+           (member cp '(#x2065 #xE0000))
+           (between #xFFF0 cp #xFFF8)
+           (between #xE0002 cp #xE001F)
+           (between #xE0080 cp #xE00FF)) :control)
+      ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
+      ((and (or (string= gc "Ms")
+                (member cp '(#x0E33 #x0EB3)))
+            (not (member cp not-spacing-mark))) :spacing-mark)
+      (t (hangul-syllable-type char)))))
+
+(defun graphemes (string)
+  #!+sb-doc
+  "Breaks the given string into graphemes acording to the default
+grapheme breaking rules specified in UAX #29"
+  (let* ((chars (coerce string 'list)) clusters (cluster (list (car chars))))
+    (do ((first (car chars) second)
+         (tail (cdr chars) (when tail (cdr tail)))
+         (second (cadr chars) (when tail (cadr tail))))
+        ((not first) (nreverse (mapcar #'(lambda (l) (coerce l 'string)) clusters)))
+      (flet ((brk () (push (nreverse cluster) clusters) (setf cluster (list second)))
+             (nobrk () (push second cluster)))
+        (let ((c1 (grapheme-break-type first))
+              (c2 (grapheme-break-type second)))
+          (cond
+            ((and (eql c1 :cr) (eql c2 :lf)) (nobrk))
+            ((or (member c1 '(:control :cr :lf))
+                 (member c2 '(:control :cr :lf))) (brk))
+             ((or (and (eql c1 :l) (member c2 '(:l :v :lv :lvt)))
+                  (and (or (eql c1 :v) (eql c1 :lv))
+                       (or (eql c2 :v) (eql c2 :t)))
+                  (and (eql c2 :t) (or (eql c1 :lvt) (eql c1 :t))))
+              (nobrk))
+             ((and (eql c1 :regional-indicator) (eql c2 :regional-indicator)) (nobrk))
+             ((or (eql c2 :extend) (eql c2 :spacing-mark) (eql c1 :prepend)) (nobrk))
+             (t (brk))))))))
