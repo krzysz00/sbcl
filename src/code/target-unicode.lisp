@@ -345,3 +345,99 @@ Otherwise, returns NIL."
        ((:nfkd)
         (sort-combiners (decompose-string string :compatibility)))))
     ((array nil (*)) string)))
+
+
+;;; Unicode case algorithms
+;; FIXME: Make these parts less redundant (macro?)
+(defparameter **special-titlecases**
+  '#.(with-open-file (stream
+                     (merge-pathnames
+                      (make-pathname
+                       :directory
+                       '(:relative :up :up "output")
+                       :name "titlecases" :type "lisp-expr")
+                      sb!xc:*compile-file-truename*)
+                     :direction :input
+                     :element-type 'character)
+        (read stream)))
+
+(defparameter **special-casefolds**
+  '#.(with-open-file (stream
+                     (merge-pathnames
+                      (make-pathname
+                       :directory
+                       '(:relative :up :up "output")
+                       :name "foldcases" :type "lisp-expr")
+                      sb!xc:*compile-file-truename*)
+                     :direction :input
+                     :element-type 'character)
+        (read stream)))
+
+(defun has-case-p (char)
+  ;; Bit 6 is the Unicode case flag, as opposed to the Common Lisp one
+  (logbitp 6 (aref **character-misc-database** (+ 5 (misc-index char)))))
+
+(defun char-uppercase (char)
+  (if (has-case-p char)
+      (let ((cp (car (gethash (char-code char) **character-cases**))))
+        (if (atom cp) (list (code-char cp)) (mapcar #'code-char cp)))
+      (list char)))
+
+(defun char-lowercase (char)
+  (if (has-case-p char)
+      (let ((cp (cdr (gethash (char-code char) **character-cases**))))
+        (if (atom cp) (list (code-char cp)) (mapcar #'code-char cp)))
+      (list char)))
+
+(defun char-titlecase (char)
+  (unless (has-case-p char) (return-from char-titlecase (list char)))
+  (let* ((cp (char-code char))
+         (value (assoc cp **special-titlecases**)))
+    (if value
+        (if (atom (cdr value))
+            (list (code-char (cdr value)))
+            (mapcar #'code-char (cdr value)))
+        (char-uppercase char))))
+
+(defun char-foldcase (char)
+  (unless (has-case-p char) (return-from char-foldcase (list char)))
+  (let* ((cp (char-code char))
+         (value (assoc cp **special-casefolds**)))
+    (if value
+        (if (atom (cdr value))
+            (list (code-char (cdr value)))
+            (mapcar #'code-char (cdr value)))
+        (char-lowercase char))))
+
+(defun string-somethingcase (fn string)
+  (let ((result))
+    (loop for char across string
+       for cased = (funcall fn char)
+       do (loop for c in cased do (push c result)))
+    (setf result (nreverse result))
+    (coerce result 'string)))
+
+#!-sb-fluid
+(declaim (inline uppercase lowercase casefold))
+
+(defun uppercase (string)
+  #!+sb-doc
+  "Returns the full uppercase of string according to the Unicode standard.
+The result string is not guaranteed to have the same length as the input."
+  (string-somethingcase #'char-uppercase string))
+
+(defun lowercase (string)
+  #!+sb-doc
+  "Returns the full lowercase of string according to the Unicode standard.
+The result string is not guaranteed to have the same length as the input."
+  (string-somethingcase #'char-lowercase string))
+
+;; TODO: Implement titlecase (requires word breaking algorithm)
+
+(defun casefold (string)
+  #!+sb-doc
+  "Returns the full casefolding of string according to the Unicode standard.
+Casefolding remove case information in a way that allaws the results to be used
+for case-insensitive comparisons.
+The result string is not guaranteed to have the same length as the input."
+  (string-somethingcase #'char-foldcase string))

@@ -71,7 +71,7 @@
   "Characters that are excluded from composition according to UAX#15")
 
 (defparameter *different-titlecases* nil)
-(defparameter *different-foldcases* nil)
+(defparameter *different-casefolds* nil)
 
 (defparameter *case-mapping*
   (with-open-file (s (make-pathname :name "SpecialCasing" :type "txt"
@@ -343,6 +343,21 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                 (new-misc (hash-misc gc bidi ccc digit decomp new-flags)))
            (setf (ucd-misc (gethash code-point *ucd-entries*)) new-misc)))))
 
+(defun fixup-casefolding ()
+  (with-open-file (s (make-pathname :name "CaseFolding" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop for line = (read-line s nil nil)
+       while line
+       unless (or (not (position #\; line)) (equal (position #\# line) 0))
+       do (destructuring-bind (original type mapping comment)
+              (split-string line #\;)
+            (let ((cp (parse-integer original :radix 16))
+                  (fold (parse-codepoints mapping :singleton-list nil)))
+              (declare (ignore comment))
+              (unless (or (string= type " S") (string= type " T"))
+                (when (not (equal (cdr (gethash cp *case-mapping*)) fold))
+                  (push (cons cp fold) *different-casefolds*))))))))
+
 (defun slurp-ucd ()
   (with-open-file (*standard-input*
                    (make-pathname :name "UnicodeData"
@@ -356,6 +371,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
   (fixup-compositions)
   (fixup-hangul-syllables)
   (complete-misc-table)
+  (fixup-casefolding)
   nil)
 
 
@@ -523,4 +539,14 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
     (with-standard-io-syntax
       (let ((*print-pretty* t))
         (prin1 *different-titlecases*))))
+  (with-open-file (*standard-output*
+                   (make-pathname :name "foldcases"
+                                  :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (prin1 *different-casefolds*))))
   (values))
