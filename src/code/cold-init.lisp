@@ -119,6 +119,7 @@
 
   (show-and-call !character-database-cold-init)
   (show-and-call !character-name-database-cold-init)
+  (show-and-call sb!unicode::!unicode-properties-cold-init)
 
   (show-and-call !early-package-cold-init)
   (show-and-call !package-cold-init)

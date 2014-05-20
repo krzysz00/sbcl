@@ -21,6 +21,16 @@
               (remove "" (split-string string #\Space) :test #'string=))))
     (if (not (or (cdr list) singleton-list)) (car list) list)))
 
+
+(defun parse-codepoint-range (string)
+  "Parse the Unicode syntax DDDD|DDDD..DDDD into an inclusive range (start end)"
+  (destructuring-bind (start &optional empty end) (split-string string #\.)
+    (let* ((head (parse-integer start :radix 16))
+           (tail (if end
+                     (parse-integer end :radix 16 :end (position #\Space end))
+             head)))
+      (list head tail))))
+
 (defun init-indices (strings)
   (let ((hash (make-hash-table :test #'equal)))
     (loop for string in strings
@@ -375,6 +385,64 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
   nil)
 
 
+;;; PropList.txt
+(defparameter **proplist-properties** nil
+  "A list of properties extracted from PropList.txt")
+
+(defun parse-property (stream &optional name)
+  (let (result)
+    (loop for line = (read-line stream nil nil)
+       while (and line (not (position #\= line)))
+       for entry = (subseq line 0 (position #\# line))
+       when (and entry (string/= entry ""))
+       do (push (parse-codepoint-range (car (split-string entry #\;))) result))
+    (setf result (nreverse result))
+    (when name
+      (push name **proplist-properties**)
+      (push result **proplist-properties**))))
+
+(defun slurp-proplist ()
+  (with-open-file (s (make-pathname :name "PropList"
+                                    :type "txt"
+                                    :defaults *unicode-character-database*)
+                     :direction :input)
+    (parse-property s) ;; Initial comments
+    (parse-property s :whitespace)
+    (parse-property s) ;; Bidi_Control
+    (parse-property s) ;; Join_Control
+    (parse-property s) ;; Dash
+    (parse-property s) ;; Hyphen
+    (parse-property s) ;; Quotation_Mark
+    (parse-property s) ;; Terminal_Punctuation
+    (parse-property s) ;; Other_Math
+    (parse-property s) ;; Hex_Digit
+    (parse-property s) ;; ASCII_Hex_Digit
+    (parse-property s :other-alphabetic)
+    (parse-property s :ideographic)
+    (parse-property s) ;; Diacritic
+    (parse-property s) ;; Extender
+    (parse-property s :other-lowercase)
+    (parse-property s :other-uppercase)
+    (parse-property s) ;; Noncharacter_code_point
+    (parse-property s :other-grapheme-extend)
+    (parse-property s) ;; IDS_Binary_Operator
+    (parse-property s) ;; IDS_Trinary_Operator
+    (parse-property s) ;; Radical
+    (parse-property s) ;; Unified_Ideograph
+    (parse-property s) ;; Other_Default_Ignorable_Code_Point
+    (parse-property s) ;; Deprecated
+    (parse-property s) ;; Soft_Dotted
+    (parse-property s) ;; Logical_Order_Exception
+    (parse-property s) ;; Other_ID_Start
+    (parse-property s) ;; Other_ID_Continue
+    (parse-property s :sterm)
+    (parse-property s) ;; Variation_Selector
+    (parse-property s) ;; Pattern_White_Space
+    (parse-property s) ;; Pattern_Syntax
+    (setf **proplist-properties** (nreverse **proplist-properties**))
+    (values)))
+
+
 ;;; Output code
 (defun write-codepoint (code-point stream)
   (write-byte (ldb (byte 8 16) code-point) stream)
@@ -505,6 +573,15 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
   (output-decomposition-data)
   (output-composition-data)
   (output-case-data)
+  (with-open-file (*standard-output*
+                   (make-pathname :name "misc-properties" :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (prin1 **proplist-properties**))))
   (with-open-file (f (make-pathname :name "ucd-names" :type "lisp-expr"
                                     :defaults *output-directory*)
                      :direction :output

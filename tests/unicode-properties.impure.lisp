@@ -18,7 +18,7 @@
         while end))
 
 (defun test-line (line)
-  (destructuring-bind (%cp %name gc ccc bidi decomp-map
+  (destructuring-bind (%cp %name %gc ccc %bidi decomp-map
                        %decimal-digit %digit %numeric
                        %bidi-mirrored old-name old-comment
                        simple-up simple-down simple-title)
@@ -27,6 +27,8 @@
                      simple-down simple-title))
     (let* ((cp (parse-integer %cp :radix 16))
            (char (code-char cp))
+           (gc (intern (string-upcase %gc) "KEYWORD"))
+           (bidi (intern (string-upcase %bidi) "KEYWORD"))
            (name (if (position #\< %name) nil (substitute #\_ #\Space %name)))
            (char-from-name (name-char name))
            (decimal-digit (parse-integer %decimal-digit :junk-allowed t))
@@ -35,9 +37,9 @@
            (bidi-mirrored (string= %bidi-mirrored "Y")))
       (when char-from-name
         (assert (char= char char-from-name)))
-      (assert (string= gc (general-category char)))
+      (assert (eql gc (general-category char)))
       (assert (= (parse-integer ccc) (combining-class char)))
-      (assert (string= bidi (bidi-class char)))
+      (assert (eql bidi (bidi-class char)))
       (assert (eql decimal-digit (decimal-digit char)))
       (assert (eql digit (digit-value char)))
       (assert (eql numeric (numeric-value char)))

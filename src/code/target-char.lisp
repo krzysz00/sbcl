@@ -135,8 +135,8 @@
                              for key = (read-codepoint)
                              for upper = (read-length-tagged)
                              for lower = (read-length-tagged)
-                             do (/hexstr index) (setf (gethash key table) (cons upper lower)) (/show0 "Next iteration")))
-                        (/show0 "Table is:") (/hexstr table) table)))
+                             do (setf (gethash key table) (cons upper lower))))
+                        table)))
               ,(with-open-file (stream (file "ucd-names" "lisp-expr")
                                        :direction :input
                                        :element-type 'character)

@@ -65,4 +65,3 @@
             do (test-grapheme-line (remove #\Tab line))))))
 
 (test-graphemes)
-

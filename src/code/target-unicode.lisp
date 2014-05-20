@@ -35,6 +35,29 @@
                      :element-type 'character)
         (read stream)))
 
+(macrolet ((unicode-property-init ()
+             (let ((proplist-dump
+                    (with-open-file (stream
+                                     (merge-pathnames
+                                      (make-pathname
+                                       :directory
+                                       '(:relative :up :up "output")
+                                       :name "misc-properties" :type "lisp-expr")
+                                      sb!xc:*compile-file-truename*)
+                                     :direction :input
+                                     :element-type 'character)
+                      (read stream))))
+               `(progn
+                  (sb!impl::defglobal **proplist-properties** ',proplist-dump)
+                  (defun !unicode-properties-cold-init ()
+                    (let ((hash (make-hash-table)) (list ',proplist-dump))
+                      (do ((k (car list) (car list)) (v (cadr list) (cadr list)))
+                          ((not list) hash)
+                        (setf (gethash k hash) v)
+                        (setf list (cddr list)))
+                      (setf **proplist-properties** hash)))))))
+  (unicode-property-init))
+
 ;;; Unicode property access
 (defun reverse-ucd-indices (strings)
   (let ((hash (make-hash-table)))
@@ -43,18 +66,29 @@
           do (setf (gethash index hash) string))
     hash))
 
+(defun ordered-ranges-member (item list)
+  (loop for (start end) in list do
+       (cond
+         ((and (<= start item) (<= item end))
+          (return-from ordered-ranges-member t))
+         ((< item start) (return-from ordered-ranges-member nil)) ;Too far
+         (t nil))) nil)
+
+(defun proplist-p (char property)
+  (ordered-ranges-member (char-code char)
+                         (gethash property **proplist-properties**)))
+
 ;; WARNING: These have to be manually kept in sync with the values in ucd.lisp
 (defparameter *general-categories*
   (reverse-ucd-indices
-   '("Lu" "Ll" "Lt" "Lm" "Lo" "Cc" "Cf" "Co" "Cs" "Mc" "Me" "Mn" "Nd" "Nl"
-     "No" "Pc" "Pd" "Pe" "Pf" "Pi" "Po" "Ps" "Sc" "Sk" "Sm" "So" "Zl" "Zp"
-     "Zs")))
-
+   '(:Lu :Ll :Lt :Lm :Lo :Cc :Cf :Co :Cs :Mc :Me :Mn :Nd :Nl
+     :No :Pc :Pd :Pe :Pf :Pi :Po :Ps :Sc :Sk :Sm :So :Zl :Zp
+     :Zs)))
 
 (defparameter *bidi-classes*
   (reverse-ucd-indices
-   '("BN" "AL" "AN" "B" "CS" "EN" "ES" "ET" "L" "LRE" "LRO" "NSM" "ON"
-     "PDF" "R" "RLE" "RLO" "S" "WS" "LRI" "RLI" "FSI" "PDI")))
+   '(:BN :AL :AN :B :CS :EN :ES :ET :L :LRE :LRO :NSM :ON
+     :PDF :R :RLE :RLO :S :WS :LRI :RLI :FSI :PDI)))
 
 (defun general-category (character)
   #!+sb-doc
@@ -132,6 +166,40 @@ If the character is not a Hangul syllable or Jamo, returns NIL"
       ((and (<= #xac00 cp) (<= cp #xd7a3))
        (if (= 0 (rem (- cp #xac00) 28)) :LV :LVT)))))
 
+(defun uppercase-p (character)
+  #!+sb-doc
+  "Returns T if a charatrer has the Unicode property Uppercase and NIL otherwise"
+  (or (eql (general-category character) :Lu) (proplist-p character :other-uppercase)))
+
+(defun lowercase-p (character)
+  #!+sb-doc
+  "Returns T if a charatrer has the Unicode property Lowercase and NIL otherwise"
+  (or (eql (general-category character) :Ll) (proplist-p character :other-lowercase)))
+
+(defun cased-p (character)
+  #!+sb-doc
+  "Returns T if the given character has a (Unicode) case, and NIL otherwise"
+  (or (uppercase-p character) (lowercase-p character)
+      (eql (general-category character) :Lt)))
+
+(defun alphabetic-p (character)
+  #!+sb-doc
+  "Returns T if a character is Alphabetic according to the Unicode standard
+and NIL otherwise"
+  (or (not (not (member (general-category character) '(:Lu :Ll :Lt :Lm :Lo :Nl))))
+      (proplist-p character :other-alphabetic)))
+
+(defun ideographic-p (character)
+  #!+sb-doc
+  "Returns T if the character has the Unicode property Ideographic,
+which loosely corresponds to the set of \"Chinese characters\""
+  (proplist-p character :ideographic))
+
+(defun whitespace-p (character)
+  #!+sb-doc
+  "Returns T if the given character is whitespace according to Unicode
+and NIL otherwise"
+  (proplist-p character :whitespace))
 
 ;;; Implements UAX#15: Normalization Forms
 (defun char-decomposition-info (char)
@@ -477,10 +545,6 @@ The result string is not guaranteed to have the same length as the input."
 (defun grapheme-break-type (char)
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
-        (special-extend
-         '(#x09BE #x09D7 #x0B3E #x0B57 #x0BBE #x0BD7 #x0CC2 #x0CD5 #x0CD6
-           #x0D3E #x0D57 #x0DCF #x0DDF #x200C #x200D #x302E #x302F #xFF9E
-           #xFF9F #x1D165 #x1D16E #x1D16F #x1D170 #x1D171 #x1D172))
         (not-spacing-mark
          '(#x102B #x102C #x1038 #x1062 #x1063 #x1064 #x1067 #x1068 #x1069
            #x106A #x106B #x106C #x106D #x1083 #x1087 #x1088 #x1089 #x108A
@@ -491,16 +555,17 @@ The result string is not guaranteed to have the same length as the input."
       ((not char) nil)
       ((= cp 10) :LF)
       ((= cp 13) :CR)
-      ((or (member gc '("Mn" "Me") :test #'string=)
-           (member cp special-extend)) :extend)
-      ((or (member gc '("Zl" "Zp" "Cc" "Cs" "Cf"))
+      ((or (member gc '(:Mn :Me))
+           (proplist-p char :other-grapheme-extend)) :extend)
+      ((or (member gc '(:Zl :Zp :Cc :Cs :Cf))
            ;; From Cn and Default_Ignorable_Code_Point
            (member cp '(#x2065 #xE0000))
            (between #xFFF0 cp #xFFF8)
            (between #xE0002 cp #xE001F)
-           (between #xE0080 cp #xE00FF)) :control)
+           (between #xE0080 cp #xE00FF)
+           (between #xE01F0 cp #xE01FF)) :control)
       ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
-      ((and (or (string= gc "Mc")
+      ((and (or (eql gc :Mc)
                 (member cp '(#x0E33 #x0EB3)))
             (not (member cp not-spacing-mark))) :spacing-mark)
       (t (hangul-syllable-type char)))))
