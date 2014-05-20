@@ -162,8 +162,9 @@
     (inst compute-code code-tn lip start-lab temp)
     ;; Build our stack frames.
     (unless copy-more-arg-follows
-      (inst add temp cfp-tn
-            (* n-word-bytes (sb-allocated-size 'control-stack)))
+      (composite-immediate-instruction
+       add temp cfp-tn
+       (* n-word-bytes (sb-allocated-size 'control-stack)))
       (store-csp temp)
       (let ((nfp-tn (current-nfp-tn vop)))
         (when nfp-tn
@@ -179,8 +180,10 @@
   (:generator 2
     (trace-table-entry trace-table-fun-prologue)
     (load-csp res)
-    (inst add nfp res (* (max 1 (sb-allocated-size 'control-stack))
-                         n-word-bytes))
+    (composite-immediate-instruction
+     add nfp res
+     (* (max 1 (sb-allocated-size 'control-stack))
+        n-word-bytes))
     (store-csp nfp)
     (when (ir2-physenv-number-stack-p callee)
       (let* ((nbytes (bytes-needed-for-non-descriptor-stack-frame)))
@@ -202,7 +205,8 @@
     (load-csp res)
     ;; Our minimum caller frame size is two words, one for the frame
     ;; link and one for the LRA.
-    (inst add csp-temp res (* (max 2 nargs) n-word-bytes))
+    (composite-immediate-instruction
+     add csp-temp res (* (max 2 nargs) n-word-bytes))
     (store-csp csp-temp)
     (storew cfp-tn res ocfp-save-offset)))
 
@@ -416,29 +420,26 @@
       (assemble ()
         ;; Compute the end of the fixed stack frame (start of the MORE
         ;; arg area) into RESULT.
-        (inst add result cfp-tn
-              (* n-word-bytes (sb-allocated-size 'control-stack)))
+        (composite-immediate-instruction
+         add result cfp-tn (* n-word-bytes (sb-allocated-size 'control-stack)))
         ;; Compute the end of the MORE arg area (and our overall frame
         ;; allocation) into the stack pointer.
         (cond ((zerop fixed)
                (inst cmp nargs-tn 0)
-               (inst add temp result nargs-tn)
-               (store-csp temp)
+               (inst add dest result nargs-tn)
+               (store-csp dest)
                (inst b :eq DONE))
               (t
                (inst subs count nargs-tn (fixnumize fixed))
                (store-csp result :le)
                (inst b :le DONE)
-               (inst add temp result count)
-               (store-csp temp)))
+               (inst add dest result count)
+               (store-csp dest)))
 
         (when (< fixed register-arg-count)
           ;; We must stop when we run out of stack args, not when we
           ;; run out of more args.
           (inst add result result (fixnumize (- register-arg-count fixed))))
-
-        ;; Initialize dest to be end of stack.
-        (load-csp dest)
 
         ;; We are copying at most (- NARGS FIXED) values, from last to
         ;; first, in order to shift them out of the allocated part of
@@ -452,11 +453,18 @@
         ;; moved.
 
         LOOP
-        (inst cmp dest result)
         (let ((delta (- (sb-allocated-size 'control-stack) fixed)))
-          (inst ldr :gt temp (@ dest (- (* (1+ delta) n-word-bytes)))))
-        (inst str :gt temp (@ dest (- n-word-bytes) :pre-index))
-        (inst b :gt LOOP)
+          (cond ((zerop delta)) ;; nothing to move
+                ((plusp delta)  ;; copy backward
+                 (inst cmp dest result)
+                 (inst ldr :gt temp (@ dest (- (* (1+ delta) n-word-bytes))))
+                 (inst str :gt temp (@ dest (- n-word-bytes) :pre-index))
+                 (inst b :gt LOOP))
+                (t ;; copy forward
+                 (inst cmp dest result)
+                 (inst ldr :gt temp (@ result (- (* delta n-word-bytes))))
+                 (inst str :gt temp (@ result n-word-bytes :post-index))
+                 (inst b :gt LOOP))))
 
         DO-REGS
         (when (< fixed register-arg-count)
@@ -478,8 +486,8 @@
         ;; number stack frame.
         (let ((nfp-tn (current-nfp-tn vop)))
           (when nfp-tn
-            (inst sub nfp-tn nsp-tn
-                  (bytes-needed-for-non-descriptor-stack-frame))
+            (composite-immediate-instruction
+             sub nfp-tn nsp-tn (bytes-needed-for-non-descriptor-stack-frame))
             (move nsp-tn nfp-tn)))))))
 
 ;;; More args are stored consecutively on the stack, starting

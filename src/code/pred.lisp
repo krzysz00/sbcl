@@ -149,6 +149,7 @@
     (saetp-defs))
   ;; Other array types
   (def-type-predicate-wrapper simple-array-p)
+  (def-type-predicate-wrapper simple-rank-1-array-*-p)
   (def-type-predicate-wrapper simple-string-p)
   (def-type-predicate-wrapper stringp)
   (def-type-predicate-wrapper vectorp)
@@ -159,6 +160,11 @@
   (and (fixnump x)
        (<= 0 x limit)))
 
+#!+(or x86 x86-64 ppc)
+(defun %other-pointer-subtype-p (x choices)
+  (and (%other-pointer-p x)
+       (member (%other-pointer-widetag x) choices)
+       t))
 
 ;;; Return the specifier for the type of object. This is not simply
 ;;; (TYPE-SPECIFIER (CTYPE-OF OBJECT)) because CTYPE-OF has different
