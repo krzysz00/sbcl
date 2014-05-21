@@ -66,6 +66,12 @@
           do (setf (gethash index hash) string))
     hash))
 
+(defun ord-member (item list)
+  (loop for i in list do
+       (cond ((= item i) (return-from ord-member i))
+             ((< item i) (return-from ord-member nil))))
+  nil)
+
 (defun ordered-ranges-member (item list)
   (loop for (start end) in list do
        (cond
@@ -526,7 +532,18 @@ The result string is not guaranteed to have the same length as the input."
 The result string is not guaranteed to have the same length as the input."
   (string-somethingcase #'char-lowercase string))
 
-;; TODO: Implement titlecase (requires word breaking algorithm)
+(defun titlecase (string)
+  #!+sb-doc
+  "Returns the titlecase of the given string. The resulting string can
+be longer than the input"
+  (let ((words (words string))
+        (cased nil))
+   (loop for word in words
+      for initial = (char word 0)
+      for rest = (subseq word 1)
+      do (push (concatenate 'string (char-titlecase initial) (lowercase rest))
+               cased))
+   (apply #'concatenate 'string (nreverse cased))))
 
 (defun casefold (string)
   #!+sb-doc
@@ -564,15 +581,15 @@ The result string is not guaranteed to have the same length as the input."
        :extend)
       ((or (member gc '(:Zl :Zp :Cc :Cs :Cf))
            ;; From Cn and Default_Ignorable_Code_Point
-           (member cp '(#x2065 #xE0000))
+           (ord-member cp '(#x2065 #xE0000))
            (between #xFFF0 cp #xFFF8)
            (between #xE0002 cp #xE001F)
            (between #xE0080 cp #xE00FF)
            (between #xE01F0 cp #xE01FF)) :control)
       ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
       ((and (or (eql gc :Mc)
-                (member cp '(#x0E33 #x0EB3)))
-            (not (member cp not-spacing-mark))) :spacing-mark)
+                (ord-member cp '(#x0E33 #x0EB3)))
+            (not (ord-member cp not-spacing-mark))) :spacing-mark)
       (t (hangul-syllable-type char)))))
 
 (defun graphemes (string)
@@ -602,6 +619,7 @@ grapheme breaking rules specified in UAX #29"
              (t (brk))))))))
 
 (defun word-break-type (char)
+  ;; Words use graphemes as characters to deal with the ignore rule
   (when (listp char) (setf char (car char)))
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
@@ -647,10 +665,10 @@ grapheme breaking rules specified in UAX #29"
             (not (or (ideographic-p char)
                      (ordered-ranges-member cp complex-context-blocks)
                      (ordered-ranges-member cp hiragana)))) :aletter)
-      ((member cp midnumlet) :midnumlet)
-      ((member cp midletter) :midletter)
-      ((member cp midnum) :midnum)
-      ((or (and (eql gc :Nd) (not (between #xFF10 #xFF19 cp))) ;Fullwidth digits
+      ((ord-member cp midnumlet) :midnumlet)
+      ((ord-member cp midletter) :midletter)
+      ((ord-member cp midnum) :midnum)
+      ((or (and (eql gc :Nd) (not (between #xFF10 cp #xFF19))) ;Fullwidth digits
            (eql cp #x066B)) :numeric)
       ((eql gc :Pc) :extendnumlet)
       (t nil))))
