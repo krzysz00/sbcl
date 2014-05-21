@@ -20,7 +20,7 @@
         collect (subseq string begin end)
         while end))
 
-(defun grapheme-line-to-clusters (line)
+(defun line-to-clusters (line)
   (let ((codepoints
          (remove "" (split-string (substitute #\Space +div+ line) #\Space)
                  :test #'string=))
@@ -43,7 +43,7 @@
               (remove "" (split-string string #\Space) :test #'string=))))
     (if (not (or (cdr list) singleton-list)) (car list) list)))
 
-(defun test-grapheme-line (line)
+(defun test-line (fn line)
   (let ((relevant-portion (subseq line 0 (position #\# line))))
     (when (string/= relevant-portion "")
       (let ((string
@@ -52,8 +52,8 @@
                       (parse-codepoints
                         (remove +mul+ (remove +div+ relevant-portion))))
                      'string)))
-      (assert (equalp (graphemes string)
-                      (grapheme-line-to-clusters relevant-portion)))))))
+      (assert (equalp (funcall fn string)
+                      (line-to-clusters relevant-portion)))))))
 
 (defun test-graphemes ()
   (declare (optimize (debug 2)))
@@ -62,6 +62,17 @@
     (with-open-file (s "data/GraphemeBreakTest.txt" :external-format :utf8)
       (loop for line = (read-line s nil nil)
             while line
-            do (test-grapheme-line (remove #\Tab line))))))
+            do (test-line #'graphemes (remove #\Tab line))))))
 
 (test-graphemes)
+
+(defun test-words ()
+  (declare (optimize (debug 2)))
+  (with-test (:name (:word-breaking)
+                    :skipped-on '(not :sb-unicode))
+    (with-open-file (s "data/WordBreakTest.txt" :external-format :utf8)
+      (loop for line = (read-line s nil nil)
+            while line
+            do (test-line #'words (remove #\Tab line))))))
+
+(test-words)

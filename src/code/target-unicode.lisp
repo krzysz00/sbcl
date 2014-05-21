@@ -542,6 +542,8 @@ The result string is not guaranteed to have the same length as the input."
 (defun between (lower-bound item upper-bound)
   (and (<= lower-bound item) (<= item upper-bound)))
 
+;; Word and sentence breaking set this to make their algorithms less tricky
+(defvar *other-break-special-graphemes* nil)
 (defun grapheme-break-type (char)
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
@@ -556,7 +558,10 @@ The result string is not guaranteed to have the same length as the input."
       ((= cp 10) :LF)
       ((= cp 13) :CR)
       ((or (member gc '(:Mn :Me))
-           (proplist-p char :other-grapheme-extend)) :extend)
+           (proplist-p char :other-grapheme-extend)
+           (and *other-break-special-graphemes*
+                (member gc '(:Mc :Cf)) (not (between #x200B cp #x200D))))
+       :extend)
       ((or (member gc '(:Zl :Zp :Cc :Cs :Cf))
            ;; From Cn and Default_Ignorable_Code_Point
            (member cp '(#x2065 #xE0000))
@@ -595,3 +600,119 @@ grapheme breaking rules specified in UAX #29"
              ((and (eql c1 :regional-indicator) (eql c2 :regional-indicator)) (nobrk))
              ((or (eql c2 :extend) (eql c2 :spacing-mark) (eql c1 :prepend)) (nobrk))
              (t (brk))))))))
+
+(defun word-break-type (char)
+  (when (listp char) (setf char (car char)))
+  (let ((cp (when char (char-code char)))
+        (gc (when char (general-category char)))
+        (newlines '((#xB #xC) (#x0085 #x0085) (#x2028 #x2029)))
+        (hebrew-letters
+         '((#x05D0 #x05EA) (#x05F0 #x05F2) (#xFB1D #xFB1D) (#xFB1F #xFB28)
+           (#xFB2A #xFB36) (#xFB38 #xFB3C) (#xFB3E #xFB3E) (#xFB40 #xFB41)
+           (#xFB43 #xFB44) (#xFB46 #xFB4F)))
+        ;; Ranges from Scripts.txt adjusted to include extra values from UAX #29
+        (katakana
+         '((#x3031 #x3035) (#x309B #x309C) (#x30A0 #x30FA) (#x30FC #x30FE)
+           (#x30FF #x30FF) (#x31F0 #x31FF) (#x32D0 #x32FE) (#x3300 #x3357)
+           (#xFF66 #xFF9D) (#x1B000 #x1B000)))
+        ;; TODO: Slightly over-broad according to UAX #14, but can't fix
+        ;; until we have the line-breaking categories implemented
+        (complex-context-blocks
+         '((#x0E00 #x0E7F) (#x0E80 #x0EFF) (#x1000 #x109F) (#x1780 #x17FF)
+           (#x1950 #x197F) (#x1980 #x19DF) (#x1A20 #x1AAF) (#xAA60 #xAA7F)
+           (#xAA80 #xAADF)))
+        (hiragana
+         '((#x3041 #x3096) (#x309D #x309F) (#x1B001 #x1B001) (#x1F200 #x1F200)))
+        (midnumlet '(#x002E #x2018 #x2019 #x2024 #xFE52 #xFF07 #xFF0E))
+        (midletter
+         '(#x00B7 #x0387 #x05F4 #x2027 #x003A #xFE13 #xFE55 #xFF1A #x02D7))
+        (midnum
+         ;; Grepping of Line_Break = IS adjusted per UAX #29
+         '(#x002C #x003B #x037E #x0589 #x060C #x060D #x066C #x07F8 #x2044
+           #xFE10 #xFE14 #xFE50 #xFE54 #xFF0C #xFF1B)))
+    (cond
+      ((not char) nil)
+      ((= cp 10) :LF)
+      ((= cp 13) :CR)
+      ((= cp #x27) :single-quote)
+      ((= cp #x22) :double-quote)
+      ((ordered-ranges-member cp newlines) :newline)
+      ((or (eql (grapheme-break-type char) :extend)
+           (eql gc :mc)) :extend)
+      ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
+      ((and (eql gc :Cf) (not (between #x200B cp #x200D))) :format)
+      ((ordered-ranges-member cp katakana) :katakana)
+      ((ordered-ranges-member cp hebrew-letters) :hebrew-letter)
+      ((and (or (alphabetic-p char) (= cp #x05F3))
+            (not (or (ideographic-p char)
+                     (ordered-ranges-member cp complex-context-blocks)
+                     (ordered-ranges-member cp hiragana)))) :aletter)
+      ((member cp midnumlet) :midnumlet)
+      ((member cp midletter) :midletter)
+      ((member cp midnum) :midnum)
+      ((or (and (eql gc :Nd) (not (between #xFF10 #xFF19 cp))) ;Fullwidth digits
+           (eql cp #x066B)) :numeric)
+      ((eql gc :Pc) :extendnumlet)
+      (t nil))))
+
+(defmacro flatpush (thing list)
+  (let ((%thing (gensym)) (%i (gensym)))
+    `(let ((,%thing ,thing))
+       (if (listp ,%thing)
+           (dolist (,%i ,%thing)
+             (push ,%i ,list))
+           (push ,%thing ,list)))))
+
+(defun words (string)
+  #!+sb-doc
+  "Breaks the given string into words acording to the default
+word breaking rules specified in UAX #29"
+  (let* ((chars (mapcar
+                 #'(lambda (s)
+                     (let ((l (coerce s 'list)))
+                       (if (cdr l) l (car l))))
+                 (let ((*other-break-special-graphemes* t)) (graphemes string))))
+         words word flag)
+    (flatpush (car chars) word)
+    (do ((first (car chars) second)
+         (tail (cdr chars) (when tail (cdr tail)))
+         (second (cadr chars) (when tail (cadr tail))))
+        ((not first) (nreverse (mapcar #'(lambda (l) (coerce l 'string)) words)))
+      (flet ((brk () (push (nreverse word) words) (setf word nil) (flatpush second word))
+             (nobrk () (flatpush second word)))
+        (let ((c1 (word-break-type first))
+              (c2 (word-break-type second))
+              (c3 (when (and tail (cdr tail)) (word-break-type (cadr tail)))))
+          (cond
+            (flag (nobrk) (setf flag nil))
+            ;; CR+LF are bound together by the grapheme clustering
+            ((or (eql c1 :newline) (eql c1 :cr) (eql c1 :lf)
+                 (eql c2 :newline) (eql c2 :cr) (eql c2 :lf)) (brk))
+            ((or (eql c2 :format) (eql c2 :extend)) (nobrk))
+            ((and (or (eql c1 :aletter) (eql c1 :hebrew-letter))
+                  (or (eql c2 :aletter) (eql c2 :hebrew-letter))) (nobrk))
+            ((and (or (eql c1 :aletter) (eql c1 :hebrew-letter))
+                  (member c2 '(:midletter :midnumlet :single-quote))
+                  (or (eql c3 :aletter) (eql c3 :hebrew-letter)))
+             (nobrk) (setf flag t)) ; Handle the multiple breaks from this rule
+            ((and (eql c1 :hebrew-letter) (eql c2 :double-quote)
+                  (eql c3 :hebrew-letter))
+             (nobrk) (setf flag t))
+            ((and (eql c1 :hebrew-letter) (eql c2 :single-quote)) (nobrk))
+            ((or (and (eql c1 :numeric) (member c2 '(:numeric :aletter :hebrew-letter)))
+                 (and (eql c2 :numeric) (member c1 '(:numeric :aletter :hebrew-letter))))
+             (nobrk))
+            ((and (eql c1 :numeric)
+                  (member c2 '(:midnum :midnumlet :single-quote))
+                  (eql c3 :numeric))
+             (nobrk) (setf flag t))
+            ((and (eql c1 :katakana) (eql c2 :katakana)) (nobrk))
+            ((or (and (member c1
+                              '(:aletter :hebrew-letter :katakana
+                                :numeric :extendnumlet)) (eql c2 :extendnumlet))
+                 (and (member c2
+                              '(:aletter :hebrew-letter :katakana
+                                :numeric :extendnumlet)) (eql c1 :extendnumlet)))
+             (nobrk))
+            ((and (eql c1 :regional-indicator) (eql c2 :regional-indicator)) (nobrk))
+            (t (brk))))))))
