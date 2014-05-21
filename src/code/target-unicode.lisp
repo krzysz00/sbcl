@@ -555,11 +555,15 @@ The result string is not guaranteed to have the same length as the input."
 
 
 ;;; Unicode break algorithms
+;;; In all the breaking methods:
+;;; (brk) establishes a break between `first` and `second`
+;;; (nobrk) prevents a break between `first` and `second`
+;;; Setting flag=T/state=:nobrk-next prevents a break between `second` and `htird`
 
 (defun between (lower-bound item upper-bound)
   (and (<= lower-bound item) (<= item upper-bound)))
 
-;; Word and sentence breaking set this to make their algorithms less tricky
+;; Word breaking sets this to make their algorithms less tricky
 (defvar *other-break-special-graphemes* nil)
 (defun grapheme-break-type (char)
   (let ((cp (when char (char-code char)))
@@ -643,7 +647,7 @@ grapheme breaking rules specified in UAX #29"
          '((#x3041 #x3096) (#x309D #x309F) (#x1B001 #x1B001) (#x1F200 #x1F200)))
         (midnumlet '(#x002E #x2018 #x2019 #x2024 #xFE52 #xFF07 #xFF0E))
         (midletter
-         '(#x00B7 #x0387 #x05F4 #x2027 #x003A #xFE13 #xFE55 #xFF1A #x02D7))
+         '(#x003A #x00B7 #x002D7 #x0387 #x05F4 #x2027 #xFE13 #xFE55 #xFF1A))
         (midnum
          ;; Grepping of Line_Break = IS adjusted per UAX #29
          '(#x002C #x003B #x037E #x0589 #x060C #x060D #x066C #x07F8 #x2044
@@ -685,7 +689,7 @@ grapheme breaking rules specified in UAX #29"
   #!+sb-doc
   "Breaks the given string into words acording to the default
 word breaking rules specified in UAX #29"
-  (let* ((chars (mapcar
+  (let ((chars (mapcar
                  #'(lambda (s)
                      (let ((l (coerce s 'list)))
                        (if (cdr l) l (car l))))
@@ -693,8 +697,8 @@ word breaking rules specified in UAX #29"
          words word flag)
     (flatpush (car chars) word)
     (do ((first (car chars) second)
-         (tail (cdr chars) (when tail (cdr tail)))
-         (second (cadr chars) (when tail (cadr tail))))
+         (tail (cdr chars) (cdr tail))
+         (second (cadr chars) (cadr tail)))
         ((not first) (nreverse (mapcar #'(lambda (l) (coerce l 'string)) words)))
       (flet ((brk () (push (nreverse word) words) (setf word nil) (flatpush second word))
              (nobrk () (flatpush second word)))
@@ -734,3 +738,140 @@ word breaking rules specified in UAX #29"
              (nobrk))
             ((and (eql c1 :regional-indicator) (eql c2 :regional-indicator)) (nobrk))
             (t (brk))))))))
+
+(defun sentence-break-type (char)
+  (when (listp char) (setf char (car char)))
+  (let ((cp (when char (char-code char)))
+        (gc (when char (general-category char)))
+        (aterms '(#x002E #x2024 #xFE52 #xFF0E))
+        (scontinues
+         '(#x002C #x002D #x003A #x055D #x060C #x060D #x07F8 #x1802 #x1808
+           #x2013 #x2014 #x3001 #xFE10 #xFE11 #xFE13 #xFE31 #xFE32 #xFE50
+           #xFE51 #xFE55 #xFE58 #xFE63 #xFF0C #xFF0D #xFF1A #xFF64))
+        (additional-quotes
+         '((#x0022 #x0022) (#x0027 #x0027) (#x275B #x275E) (#x2E00 #x2E01)
+           (#x2E06 #x2E08) (#x2E0B #x2E0B))))
+    (cond
+      ((not char) nil)
+      ((= cp 10) :LF)
+      ((= cp 13) :CR)
+      ((or (eql (grapheme-break-type char) :extend)
+           (eql gc :mc)) :extend)
+      ((ord-member cp '(#x0085 #x2028 #x2029)) :sep)
+      ((and (eql gc :Cf) (not (between #x200C cp #x200D))) :format)
+      ((whitespace-p char) :sp)
+      ((lowercase-p char) :lower)
+      ((or (uppercase-p char) (eql gc :Lt)) :upper)
+      ((or (alphabetic-p char) (ord-member cp '(#x00A0 #x05F3))) :oletter)
+      ((or (and (eql gc :Nd) (not (between #xFF10 cp #xFF19))) ;Fullwidth digits
+           (between #x066B cp #x066C)) :numeric)
+      ((ord-member cp aterms) :aterm)
+      ((ord-member cp scontinues) :scontinue)
+      ((proplist-p char :sterm) :sterm)
+      ((and (or (member gc '(:Po :Pe :Pf :Pi))
+                (ordered-ranges-member cp additional-quotes))
+            (not (eql cp #x05F3))) :close)
+      (t nil))))
+
+(defun sentence-prebreak (string)
+  #!+sb-doc
+  "Pre-combines some sequences of characters to make the sentence-break
+algorithm simpler..
+Specifically,
+- Combines any character with the following extend of format characters
+- Combines CR + LF into '(CR LF)
+- Combines any run of :cp*:close* into one character"
+  (let ((chars (coerce string 'list))
+        cluster clusters last-seen sp-run)
+    (labels ((flush () (if (cdr cluster) (push (nreverse cluster) clusters)
+                           (if cluster (push (car cluster) clusters)))
+                    (setf cluster nil))
+             (brk (x)
+               (flush) (push x clusters))
+             (nobrk (x) (push x cluster)))
+    (loop for ch in chars
+       for type = (sentence-break-type ch)
+       do (cond
+            ((and (eql last-seen :cr) (eql type :lf)) (nobrk ch) (flush) (setf last-seen nil))
+            ((eql last-seen :cr) (brk ch) (setf last-seen nil))
+            ((eql type :cr) (nobrk ch) (setf last-seen :cr))
+            ((eql type :lf) (brk ch) (setf last-seen nil))
+            ((eql type :sep) (brk ch) (setf last-seen nil))
+            ((and last-seen (or (eql type :extend) (eql type :format)))
+             (nobrk ch))
+            ((eql type :close)
+             (unless (eql last-seen :close) (flush))
+             (nobrk ch) (setf last-seen :close sp-run nil))
+            ((eql type :sp)
+             (unless (or (and (not sp-run) (eql last-seen :close)) (eql last-seen :sp))
+               (flush) (setf sp-run t))
+             (nobrk ch) (setf last-seen :sp))
+            (t (flush) (nobrk ch) (setf last-seen type sp-run nil))))
+    (flush) (nreverse clusters))))
+
+(defun sentences (string)
+  #!+sb-doc
+  "Breaks the given string into sentences acording to the default
+sentence breaking rules specified in UAX #29"
+  (let ((special-handling '(:close :sp :sep :cr :lf :scontinue :sterm :aterm))
+        (chars (sentence-prebreak string))
+        sentence sentences state)
+    (flatpush (car chars) sentence)
+    (do ((first (car chars) second)
+         (tail (cdr chars) (cdr tail))
+         (second (cadr chars) (cadr tail))
+         (third (caddr chars) (caddr tail)))
+        ((not first)
+         (progn
+           ; Shake off last sentence
+           (when sentence (push (nreverse sentence) sentences))
+           (nreverse (mapcar #'(lambda (l) (coerce l 'string)) sentences))))
+      (flet ((brk () (push (nreverse sentence) sentences)
+                  (setf sentence nil) (flatpush second sentence))
+             (nobrk () (flatpush second sentence)))
+      (let ((c1 (sentence-break-type first))
+            (c2 (sentence-break-type second))
+            (c3 (sentence-break-type third)))
+        (cond
+          ((eql state :brk-next) (brk) (setf state nil))
+          ((eql state :nobrk-next) (nobrk) (setf state nil))
+          ((member c1 '(:sep :cr :lf)) (brk))
+          ((and (eql c1 :aterm) (eql c2 :numeric)) (nobrk))
+          ((and (eql c1 :upper) (eql c2 :aterm)
+                (eql c3 :upper)) (nobrk) (setf state :nobrk-next))
+          ((or (and (member c1 '(:sterm :aterm)) (member c2 '(:close :sp))
+                    (member c3 '(:scontinue :sterm :aterm)))
+               (and (member c1 '(:sterm :aterm))
+                    (member c2 '(:scontinue :sterm :aterm))))
+           (nobrk) (when (member c2 '(:close :sp)) (setf state :nobrk-next)))
+          ((and (member c1 '(:sterm :aterm)) (member c2 '(:close :sp))
+                (member c3 '(:sep :cr :lf)))
+           (nobrk) (setf state :nobrk-next)) ;; Let the linebreak call (brk)
+          ((and (member c1 '(:sterm :aterm)) (member c2 '(:sep :cr :lf)))
+           (nobrk)) ; Doesn't trigger rule 8
+          ((eql c1 :sterm) ; Not ambiguous anymore, rule 8a already handled
+           (if (member c2 '(:close :sp))
+               (progn (nobrk) (setf state :brk-next))
+               (brk)))
+          ((and (eql c2 :sterm) third (not (member c3 special-handling)))
+           (nobrk) (setf state :brk-next)) ; STerm followed by nothing important
+          ((or (eql c1 :aterm)
+               (and (eql c2 :aterm) third
+                    (not (member c3 special-handling)) (not (eql c3 :numeric))))
+           ; Finally handle rule 8
+           (if (loop for c in
+                    (if (and third (not (or (member c3 special-handling)
+                                            (eql c3 :numeric))))
+                        (cdr tail) tail)
+                  for type = (sentence-break-type c) do
+                    (when (member type '(:oletter :upper :sep :cr :lf
+                                         :sterm :aterm))
+                      (return nil))
+                    (when (eql type :lower) (return t)) finally (return nil))
+               ; Ambiguous case
+               (progn (nobrk) (setf state :nobrk-next))
+               ; Otherwise
+               (if (member c2 '(:close :sp :aterm))
+                   (progn (nobrk) (setf state :brk-next))
+                   (brk))))
+          (t (nobrk))))))))

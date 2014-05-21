@@ -76,3 +76,14 @@
             do (test-line #'words (remove #\Tab line))))))
 
 (test-words)
+
+(defun test-sentences ()
+  (declare (optimize (debug 2)))
+  (with-test (:name (:sentence-breaking)
+                    :skipped-on '(not :sb-unicode))
+    (with-open-file (s "data/SentenceBreakTest.txt" :external-format :utf8)
+      (loop for line = (read-line s nil nil)
+            while line
+            do (test-line #'sentences (remove #\Tab line))))))
+
+(test-sentences)
