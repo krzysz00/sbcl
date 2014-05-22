@@ -14,6 +14,7 @@ it still has quite a few.  @xref{Contributed Modules}.
 * Metaobject Protocol::
 * Extensible Sequences::
 * Support For Unix::
+* Unicode Support::
 * Customization Hooks for Users::
 * Tools To Help Developers::
 * Resolution of Name Conflicts::
@@ -648,6 +649,84 @@ following functions are available for use with processes:
 @include fun-sb-ext-process-close.texinfo
 
 @include fun-sb-ext-process-kill.texinfo
+
+@node  Unicode Support
+@comment  node-name,  next,  previous,  up
+@section Unicode Support
+
+SBCL provides support for working with Unicode text and querying the
+standard Unicode database for information about individual codepoints.
+Unicode-related functions are located in the @code{sb-unicode} package.
+
+@subsection Unicode property access
+
+The following functions can be used to find information about a Unicode
+codepoint.
+
+@include fun-sb-unicode-general-category.texinfo
+
+@include fun-sb-unicode-bidi-class.texinfo
+
+@include fun-sb-unicode-combining-class.texinfo
+
+@include fun-sb-unicode-decimal-digit.texinfo
+
+@include fun-sb-unicode-digit-value.texinfo
+
+@include fun-sb-unicode-numeric-value.texinfo
+
+@include fun-sb-unicode-mirrored-p.texinfo
+
+@include fun-sb-unicode-hangul-syllable-type.texinfo
+
+@include fun-sb-unicode-east-asian-width.texinfo
+
+@include fun-sb-unicode-uppercase-p.texinfo
+
+@include fun-sb-unicode-lowercase-p.texinfo
+
+@include fun-sb-unicode-cased-p.texinfo
+
+@include fun-sb-unicode-alphabetic-p.texinfo
+
+@include fun-sb-unicode-ideographic-p.texinfo
+
+@include fun-sb-unicode-whitespace-p.texinfo
+
+@subsection String operations
+
+SBCL can normalize strings using:
+
+@include fun-sb-unicode-normalize-string.texinfo
+
+SBCL implements the full range of Unicode case operations with the
+functions
+
+@include fun-sb-unicode-uppercase.texinfo
+
+@include fun-sb-unicode-lowercase.texinfo
+
+@include fun-sb-unicode-titlecase.texinfo
+
+@include fun-sb-unicode-casefold.texinfo
+
+It also extends standard Common Lisp case functions such as
+@findex @cl{string-upcase} and
+@findex @cl{char-downcase} to support a subset of Unicode's casing
+behavior. Specifically, a character is
+@findex @cl{both-case-p} if its case mapping in Unicode is one-to-one
+and invertable.
+
+@subsection Breaking strings
+
+The @code{sb-unicode} package includes several functions for breaking a
+Unicode string into useful parts.
+
+@include fun-sb-unicode-graphemes.texinfo
+
+@include fun-sb-unicode-words.texinfo
+
+@include fun-sb-unicode-sentences.texinfo
 
 @node  Customization Hooks for Users
 @comment  node-name,  next,  previous,  up

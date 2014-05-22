@@ -432,8 +432,8 @@ and NIL otherwise"
           (lstring result)))))
 
 (defun normalize-string (string &optional (form :nfd))
-  "Normalize `string` to the Uninoce normalization form `form`.
-   Acceptable values for `form` are `:nfd`, `:nfc`, `:nfkd`, and `:nfkc`"
+  "Normalize string to the Uninoce normalization form form.
+   Acceptable values for form are :nfd, :nfc, :nfkd, and :nfkc"
   (declare (type (member :nfd :nfkd :nfc :nfkc) form))
   #!-sb-unicode
   (etypecase string

@@ -31,7 +31,7 @@ is replaced with replacement."
                              :start old-pos
                              :end (or pos (length string)))
             when pos do (write-string replacement out)
-            while pos))) 
+            while pos)))
 
 (defun test-line (line)
   (destructuring-bind (%cp %name %gc ccc %bidi decomp-map
@@ -132,7 +132,7 @@ Wanted ~S, got ~S."
       (loop for line = (read-line s nil nil)
             while line
             unless (or (string= "" line) (eql 0 (position #\# line)))
-            do (test-property-line #'sb-unicode::grapheme-break-type 
+            do (test-property-line #'sb-unicode::grapheme-break-type
                                    (replace-all "SpacingMark" "SPACING-MARK"
                                                 (substitute #\- #\_ line)))))))
 
