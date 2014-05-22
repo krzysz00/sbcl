@@ -96,6 +96,9 @@
    '(:BN :AL :AN :B :CS :EN :ES :ET :L :LRE :LRO :NSM :ON
      :PDF :R :RLE :RLO :S :WS :LRI :RLI :FSI :PDI)))
 
+(defparameter *east-asian-widths*
+  (reverse-ucd-indices '(:N :A :H :W :F :Na)))
+
 (defun general-category (character)
   #!+sb-doc
   "Returns the general category of a character as it appears in UnicodeData.txt"
@@ -152,6 +155,14 @@ The only constraint on the numeric value is that it be a rational number."
 Otherwise, returns NIL."
   (logbitp 5 (aref **character-misc-database**
                     (+ 5 (misc-index character)))))
+
+(defun east-asian-width (character)
+  #!+sb-doc
+  "Returns the East Asian Width property of the given character as
+one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
+:W (Wide), :F (Fullwidth), or :Na (Not applicable)"
+  (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
+           *east-asian-widths*))
 
 (defun hangul-syllable-type (character)
   #!+sb-doc

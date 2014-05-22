@@ -25,6 +25,7 @@
 (defun parse-codepoint-range (string)
   "Parse the Unicode syntax DDDD|DDDD..DDDD into an inclusive range (start end)"
   (destructuring-bind (start &optional empty end) (split-string string #\.)
+    (declare (ignore empty))
     (let* ((head (parse-integer start :radix 16))
            (tail (if end
                      (parse-integer end :radix 16 :end (position #\Space end))
@@ -101,9 +102,9 @@
          finally (return hash)))
   "Maps cp -> (cons uppercase|(uppercase ...) lowercase|(lowercase ...))")
 
-(defparameter *misc-table* (make-array 400 :fill-pointer 0)
+(defparameter *misc-table* (make-array 600 :fill-pointer 0)
 "Holds the entries in the Unicode database's miscellanious array, stored as lists.
-These lists have the form (gc-index bidi-index ccc digit decomposition-info flags).
+These lists have the form (gc-index bidi-index ccc digit decomposition-info flags eaw).
 Flags is a bit-bashed integer containing cl-both-case-p, has-case-p, and
 bidi-mirrored-p. Length should be adjusted when the standard changes.")
 (defparameter *misc-hash* (make-hash-table :test #'equal)
@@ -125,13 +126,29 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
   (init-indices '("BN" "AL" "AN" "B" "CS" "EN" "ES" "ET" "L" "LRE" "LRO"
                   "NSM" "ON" "PDF" "R" "RLE" "RLO" "S" "WS" "LRI" "RLI"
                   "FSI" "PDI")))
+(defparameter *east-asian-widths* (init-indices '("N" "A" "H" "W" "F" "Na")))
+
+(defparameter *east-asian-width-table*
+  (with-open-file (s (make-pathname :name "EastAsianWidth" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop with hash = (make-hash-table)
+       for line = (read-line s nil nil) while line
+       unless (or (not (position #\# line)) (= 0 (position #\# line)))
+       do (destructuring-bind (codepoints value)
+              (split-string (subseq line 0 (1- (position #\# line))) #\;)
+            (let ((range (parse-codepoint-range codepoints))
+                  (index (gethash value *east-asian-widths*)))
+              (loop for i from (car range) to (cadr range)
+                 do (setf (gethash i hash) index))))
+       finally (return hash)))
+"Table of East Asian Widths. Used in the creation of misc entries.")
 
 (defvar *block-first* nil)
 
 
 ;;; Unicode data file parsing
-(defun hash-misc (gc-index bidi-index ccc digit decomposition-info flags)
-  (let* ((list (list gc-index bidi-index ccc digit decomposition-info flags))
+(defun hash-misc (gc-index bidi-index ccc digit decomposition-info flags eaw)
+  (let* ((list (list gc-index bidi-index ccc digit decomposition-info flags eaw))
          (index (gethash list *misc-hash*)))
     (or index
         (progn
@@ -143,13 +160,23 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
   (let* ((unallocated-misc
           ;; unallocated characters have a GC index of 31 (not colliding
           ;; with any other GC), aren't digits, aren't interestingly bidi,
-          ;; and don't decompose, combine, or have case.
-          '(31 0 0 128 0 0))
+          ;; and don't decompose, combine, or have case. They have an East
+          ;; Asian Width (eaw) of "N" (0)
+          '(31 0 0 128 0 0 0))
          (unallocated-index (apply #'hash-misc unallocated-misc))
          (unallocated-ucd (make-ucd :misc unallocated-index :decomp 0)))
     (loop for code-point from 0 to #x10FFFF do ; Flood-fil unallocated codepoints
          (unless (second (multiple-value-list (gethash code-point *ucd-entries*)))
-           (setf (gethash code-point *ucd-entries*) unallocated-ucd)))))
+           (if (and (gethash code-point *east-asian-width-table*)
+                      (/= 0 (gethash code-point *east-asian-width-table*)))
+               (let ((unallocated-unusual-width
+                      (list 31 0 0 128 0 0
+                            (gethash code-point *east-asian-width-table*))))
+                 (setf (gethash code-point *ucd-entries*)
+                       (make-ucd
+                        :misc (apply #'hash-misc unallocated-unusual-width)
+                        :decomp 0)))
+               (setf (gethash code-point *ucd-entries*) unallocated-ucd))))))
 
 (defun fixup-compositions ()
   (flet ((fixup (k v)
@@ -249,7 +276,8 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                                    (and (= gc-index 1) upper-index)))
                (bidi-mirrored-p (string= bidi-mirrored "Y"))
                (decomposition-info 0)
-               (decomposition-index 0))
+               (decomposition-index 0)
+               (eaw-index (gethash code-point *east-asian-width-table*)))
           (when (and (not cl-both-case-p)
                      (< gc-index 2))
             (format t "~A~%" name))
@@ -317,11 +345,14 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                            (if (gethash code-point *case-mapping*) (ash 1 6) 0)
                            (if bidi-mirrored-p (ash 1 5) 0)))
                  (misc-index (hash-misc gc-index bidi-index ccc digit-index
-                                        decomposition-info flags))
+                                        decomposition-info flags eaw-index))
                  (result (make-ucd :misc misc-index
                                    :decomp decomposition-index)))
             (when (and (> (length name) 7)
                        (string= ", Last>" name :start2 (- (length name) 7)))
+              ;; We can still do this despite East Asian Width being in the
+              ;; databasce since each of the UCD <First><Last> blocks
+              ;; has a consistent East Asian Width
               (loop for point from *block-first* to code-point do
                    (setf (gethash point *ucd-entries*) result)))
             (values result (normalize-character-name name)))))))
@@ -342,7 +373,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
   (loop for code-point being the hash-keys in *case-mapping*
      using (hash-value (upper . lower))
      for misc-index = (ucd-misc (gethash code-point *ucd-entries*))
-     for (gc bidi ccc digit decomp flags) = (aref *misc-table* misc-index)
+     for (gc bidi ccc digit decomp flags eaw) = (aref *misc-table* misc-index)
      when (logbitp 7 flags) do
        (when (or (not (atom upper)) (not (atom lower))
                  (and (= gc 0)
@@ -350,7 +381,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                  (and (= gc 1)
                       (not (equal (cdr (gethash upper *case-mapping*)) code-point))))
          (let* ((new-flags (clear-flag 7 flags))
-                (new-misc (hash-misc gc bidi ccc digit decomp new-flags)))
+                (new-misc (hash-misc gc bidi ccc digit decomp new-flags eaw)))
            (setf (ucd-misc (gethash code-point *ucd-entries*)) new-misc)))))
 
 (defun fixup-casefolding ()
@@ -361,9 +392,9 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
        unless (or (not (position #\; line)) (equal (position #\# line) 0))
        do (destructuring-bind (original type mapping comment)
               (split-string line #\;)
+            (declare (ignore comment))
             (let ((cp (parse-integer original :radix 16))
                   (fold (parse-codepoints mapping :singleton-list nil)))
-              (declare (ignore comment))
               (unless (or (string= type " S") (string= type " T"))
                 (when (not (equal (cdr (gethash cp *case-mapping*)) fold))
                   (push (cons cp fold) *different-casefolds*))))))))
@@ -457,7 +488,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                           :element-type '(unsigned-byte 8)
                           :if-exists :supersede
                           :if-does-not-exist :create)
-    (loop for (gc-index bidi-index ccc digit decomposition-info flags)
+    (loop for (gc-index bidi-index ccc digit decomposition-info flags eaw)
        across *misc-table*
        ;; three bits spare here
        do (write-byte gc-index stream)
@@ -468,7 +499,8 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
        ;; bit 6 is the decimal-digit flag. Two bits spare
          (write-byte digit stream)
          (write-byte decomposition-info stream)
-         (write-byte flags stream)))) ; 5 bits still available for flags
+         (write-byte flags stream) ; 5 bits still available for flags
+         (write-byte eaw stream)))) ; 5 bits still available
 
 (defun output-ucd-data ()
   (with-open-file (high-pages (make-pathname :name "ucdhigh"

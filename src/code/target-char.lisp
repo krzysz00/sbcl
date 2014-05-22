@@ -253,13 +253,13 @@
 
 ;;; The character database is made of several arrays.
 ;;; **CHARACTER-MISC-DATABASE** is an array of bytes that encode character
-;;; attributes. Each entry in the misc database is +misc-width+ (currently 6)
+;;; attributes. Each entry in the misc database is +misc-width+ (currently 7)
 ;;; bytes wide. Within each entry, the bytes represent: general category, BIDI
-;;; class, canonical combining class, digit value, decomposition info, and
-;;; other flags, respectively. Several of the entries have additional
-;;; information encoded in them at the bit level. The digit value field is
-;;; equal to 128 (has only its high bit set) if characters with that set of
-;;; attribute are not digits. Bit 6 is set if that entry encodes decimal
+;;; class, canonical combining class, digit value, decomposition info, other
+;;; flags, and East Asian width, respectively. Several of the entries have
+;;; additional information encoded in them at the bit level. The digit value
+;;; field is equal to 128 (has only its high bit set) if characters with that
+;;; set of attribute are not digits. Bit 6 is set if that entry encodes decimal
 ;;; digits, that is, characters that are DIGIT-CHAR-P. The rest of the value is
 ;;; the digit value of characters with that entry. Decomposition info contains
 ;;; the length of the decomposition of characters with that entry, and also
@@ -316,7 +316,7 @@
 (defun clear-flag (bit integer)
   (logandc2 integer (ash 1 bit)))
 
-(defconstant +misc-width+ 6)
+(defconstant +misc-width+ 7)
 
 (declaim (ftype (sfunction (t) (unsigned-byte 16)) misc-index))
 (defun misc-index (char)

@@ -67,15 +67,20 @@
           (loop for i from (parse (car parts)) to (parse (cadr parts)) collect i)
           (mapcar #'parse parts)))))
 
-(defun test-hangul-line (line)
+(defun test-property-line (fn line)
   (destructuring-bind (%codepoints value) (split-string line #\;)
-    (let ((codepoints (codepoint-or-range %codepoints))
-          (expected (read-from-string
-                     (substitute #\: #\Space value :count 1) t nil
-                     :end (position #\# value))))
+    (let* ((codepoints (codepoint-or-range %codepoints))
+           (property (remove #\Space value))
+           (expected (intern
+                      (string-upcase
+                       (subseq property 0 (position #\# property)))
+                      "KEYWORD")))
+
       (loop for i in codepoints do
-           (unless (eql expected (hangul-syllable-type (code-char i)))
-             (error "Character ~S has the wrong Hangul syllable type" (code-char i)))))))
+           (unless (eql expected (funcall fn (code-char i)))
+             (error "Character ~S has the wrong value for the tested property.
+Wanted ~S, got ~S."
+                    (code-char i) expected (funcall fn (code-char i))))))))
 
 (defun test-hangul-syllable-type ()
   (declare (optimize (debug 2)))
@@ -85,6 +90,20 @@
       (loop for line = (read-line s nil nil)
             while line
             unless (or (string= "" line) (eql 0 (position #\# line)))
-            do (test-hangul-line line)))))
+            do (test-property-line #'hangul-syllable-type line)))))
 
 (test-hangul-syllable-type)
+
+(defun test-east-asian-width ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/EastAsianWidth.txt"
+                     :external-format :ascii)
+    (with-test (:name (:east-asian-width)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line #'east-asian-width line)))))
+
+(test-east-asian-width)
+
