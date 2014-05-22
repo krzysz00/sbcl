@@ -17,6 +17,22 @@
         collect (subseq string begin end)
         while end))
 
+;; Taken straight out of the common lisp cookbook
+(defun replace-all (part replacement string &key (test #'char=))
+"Returns a new string in which all the occurences of the part
+is replaced with replacement."
+    (with-output-to-string (out)
+      (loop with part-length = (length part)
+            for old-pos = 0 then (+ pos part-length)
+            for pos = (search part string
+                              :start2 old-pos
+                              :test test)
+            do (write-string string out
+                             :start old-pos
+                             :end (or pos (length string)))
+            when pos do (write-string replacement out)
+            while pos))) 
+
 (defun test-line (line)
   (destructuring-bind (%cp %name %gc ccc %bidi decomp-map
                        %decimal-digit %digit %numeric
@@ -106,4 +122,46 @@ Wanted ~S, got ~S."
             do (test-property-line #'east-asian-width line)))))
 
 (test-east-asian-width)
+
+(defun test-grapheme-break-type ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "data/GraphemeBreakProperty.txt"
+                     :external-format :ascii)
+    (with-test (:name (:grapheme-break-type)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line #'sb-unicode::grapheme-break-type 
+                                   (replace-all "SpacingMark" "SPACING-MARK"
+                                                (substitute #\- #\_ line)))))))
+
+(test-grapheme-break-type)
+
+(defun test-word-break-type ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "data/WordBreakProperty.txt"
+                     :external-format :ascii)
+    (with-test (:name (:word-break-type)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line #'sb-unicode::word-break-type
+                                   (substitute #\- #\_ line))))))
+
+(test-word-break-type)
+
+(defun test-sentence-break-type ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "data/SentenceBreakProperty.txt"
+                     :external-format :ascii)
+    (with-test (:name (:sentence-break-type)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line #'sb-unicode::sentence-break-type line)))))
+
+(test-sentence-break-type)
 

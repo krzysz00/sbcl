@@ -600,7 +600,7 @@ The result string is not guaranteed to have the same length as the input."
            (between #xFFF0 cp #xFFF8)
            (between #xE0002 cp #xE001F)
            (between #xE0080 cp #xE00FF)
-           (between #xE01F0 cp #xE01FF)) :control)
+           (between #xE01F0 cp #xE0FFF)) :control)
       ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
       ((and (or (eql gc :Mc)
                 (ord-member cp '(#x0E33 #x0EB3)))
@@ -760,8 +760,15 @@ word breaking rules specified in UAX #29"
            #x2013 #x2014 #x3001 #xFE10 #xFE11 #xFE13 #xFE31 #xFE32 #xFE50
            #xFE51 #xFE55 #xFE58 #xFE63 #xFF0C #xFF0D #xFF1A #xFF64))
         (additional-quotes
-         '((#x0022 #x0022) (#x0027 #x0027) (#x275B #x275E) (#x2E00 #x2E01)
-           (#x2E06 #x2E08) (#x2E0B #x2E0B))))
+         '(#x0028 #x005B #x007B #x0F3A #x0F3C #x169B #x201A #x201E #x2045
+           #x207D #x208D #x2308 #x230A #x2329 #x275B #x275C #x275D #x275E
+           #x2768 #x276A #x276C #x276E #x2770 #x2772 #x2774 #x27C5 #x27E6
+           #x27E8 #x27EA #x27EC #x27EE #x2983 #x2985 #x2987 #x2989 #x298B
+           #x298D #x298F #x2991 #x2993 #x2995 #x2997 #x29D8 #x29DA #x29FC
+           #x2E22 #x2E24 #x2E26 #x2E28 #x3008 #x300A #x300C #x300E #x3010
+           #x3014 #x3016 #x3018 #x301A #x301D #xFD3E #xFE17 #xFE35 #xFE37
+           #xFE39 #xFE3B #xFE3D #xFE3F #xFE41 #xFE43 #xFE47 #xFE59 #xFE5B
+           #xFE5D #xFF08 #xFF3B #xFF5B #xFF5F #xFF62)))
     (cond
       ((not char) nil)
       ((= cp 10) :LF)
@@ -780,7 +787,7 @@ word breaking rules specified in UAX #29"
       ((ord-member cp scontinues) :scontinue)
       ((proplist-p char :sterm) :sterm)
       ((and (or (member gc '(:Po :Pe :Pf :Pi))
-                (ordered-ranges-member cp additional-quotes))
+                (ord-member cp additional-quotes))
             (not (eql cp #x05F3))) :close)
       (t nil))))
 
@@ -886,3 +893,8 @@ sentence breaking rules specified in UAX #29"
                    (progn (nobrk) (setf state :brk-next))
                    (brk))))
           (t (nobrk))))))))
+
+
+;;; Unicode line breaking
+;;; This code has a slightly different structure than the other breaking
+;;; algorithms, so it gets its own section
