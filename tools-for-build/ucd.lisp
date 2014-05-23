@@ -462,7 +462,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
     (parse-property s) ;; IDS_Binary_Operator
     (parse-property s) ;; IDS_Trinary_Operator
     (parse-property s) ;; Radical
-    (parse-property s) ;; Unified_Ideograph
+    (parse-property s :unified-ideograph)
     (parse-property s) ;; Other_Default_Ignorable_Code_Point
     (parse-property s) ;; Deprecated
     (parse-property s) ;; Soft_Dotted
@@ -477,11 +477,59 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
     (values)))
 
 
+;;; Collation keys
+(defvar *maximum-variable-key* 1)
+
+(defun bitpack-collation-key (primary secondary tertiary)
+  ;; 0 <= primary <= #xFFFD (default table)
+  ;; 0 <= secondary <= #x100
+  ;; 0 <= tertiary <= #x1E (#x1F allowed)
+  ;; Because of this, the bit packs don't overlap
+  (+ (ash primary 16) (ash secondary 5) tertiary))
+
+(defun parse-collation-line (line)
+  (destructuring-bind (%code-points %keys) (split-string line #\;)
+    (let* ((code-points (parse-codepoints %code-points))
+           (keys
+            (remove
+             ""
+             (split-string (remove #\[ (remove #\Space %keys)) #\]) :test #'string=))
+           (ret
+            (loop for key in keys
+               for variable-p = (position #\* key)
+               for parsed =
+                 ;; Don't need first value, it's always just ""
+                 (cdr (mapcar (lambda (x) (parse-integer x :radix 16 :junk-allowed t))
+                              (split-string (substitute #\. #\* key) #\.)))
+               collect
+                 (destructuring-bind (primary secondary tertiary) parsed
+                   (when variable-p (setf *maximum-variable-key*
+                                          (max primary *maximum-variable-key*)))
+                   (bitpack-collation-key primary secondary tertiary)))))
+    (values code-points ret))))
+
+(defparameter *collation-table*
+  (with-open-file (stream (make-pathname :name "Allkeys63" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop with hash = (make-hash-table :test #'equal)
+       for line = (read-line stream nil nil) while line
+       unless (eql 0 (position #\# line))
+       do (multiple-value-bind (codepoints keys) (parse-collation-line line)
+            (setf (gethash codepoints hash) keys))
+       finally (return hash))))
+
+
 ;;; Output code
 (defun write-codepoint (code-point stream)
   (write-byte (ldb (byte 8 16) code-point) stream)
   (write-byte (ldb (byte 8 8) code-point) stream)
   (write-byte (ldb (byte 8 0) code-point) stream))
+
+(defun write-4-byte (value stream)
+  (write-byte (ldb (byte 8 24) value) stream)
+  (write-byte (ldb (byte 8 16) value) stream)
+  (write-byte (ldb (byte 8 8) value) stream)
+  (write-byte (ldb (byte 8 0) value) stream))
 
 (defun output-misc-data ()
   (with-open-file (stream (make-pathname :name "ucdmisc"
@@ -602,12 +650,39 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
       (with-standard-io-syntax
         (let ((*print-pretty* t)) (print casing-pages stream))))))
 
+(defun output-collation-data ()
+  (with-open-file (stream (make-pathname :name "collation" :type "dat"
+                                           :defaults *output-directory*)
+                          :direction :output
+                          :element-type '(unsigned-byte 8)
+                          :if-exists :supersede :if-does-not-exist :create)
+    (flet ((length-tag (list1 list2)
+             ;; takes two lists of UB32 (with the caveate that list1[0] needs its
+             ;; high 8 bits free (codepoints always have that) and do
+             (let* ((l1 (length list1)) (l2 (length list2))
+                    (tag (dpb l1 (byte 4 28) (dpb l2 (byte 4 24) (car list1)))))
+               (write-4-byte tag stream)
+               (map nil #'(lambda (l) (write-4-byte l stream)) (append (cdr list1) list2)))))
+      (maphash #'length-tag *collation-table*)))
+  (with-open-file (*standard-output*
+                   (make-pathname :name "other-collation-info"
+                                  :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (write-string ";;; The highest primary variable collation index")
+        (prin1 *maximum-variable-key*)))))
+
 (defun output ()
   (output-misc-data)
   (output-ucd-data)
   (output-decomposition-data)
   (output-composition-data)
   (output-case-data)
+  (output-collation-data)
   (with-open-file (*standard-output*
                    (make-pathname :name "misc-properties" :type "lisp-expr"
                                   :defaults *output-directory*)
