@@ -66,19 +66,24 @@
           do (setf (gethash index hash) string))
     hash))
 
-(defun ord-member (item list)
-  (loop for i in list do
-       (cond ((= item i) (return-from ord-member i))
-             ((< item i) (return-from ord-member nil))))
-  nil)
+(defun ord-member (item vector)
+  (let ((len (length vector)))
+    (when (or (< item (svref vector 0)) (> item (svref vector (1- len))))
+      (return-from ord-member nil))
+    (loop for i across vector do
+         (cond ((= item i) (return-from ord-member i))
+               ((< item i) (return-from ord-member nil))))
+    nil))
 
-(defun ordered-ranges-member (item list)
-  (loop for (start end) in list do
-       (cond
-         ((and (<= start item) (<= item end))
-          (return-from ordered-ranges-member t))
-         ((< item start) (return-from ordered-ranges-member nil)) ;Too far
-         (t nil))) nil)
+(defun ordered-ranges-member (item vector)
+  (loop for i from 0 below (length vector) by 2 do
+       (let ((start (svref vector i))
+             (end (svref vector (1+ i))))
+         (cond
+           ((<= start item end)
+            (return-from ordered-ranges-member t))
+           ((< item start) (return-from ordered-ranges-member nil)) ;Too far
+           (t nil)))) nil)
 
 (defun proplist-p (char property)
   (ordered-ranges-member (char-code char)
@@ -432,7 +437,7 @@ and NIL otherwise"
           (lstring result)))))
 
 (defun normalize-string (string &optional (form :nfd))
-  "Normalize string to the Uninoce normalization form form.
+  "Normalize string to the Unicode normalization form form.
    Acceptable values for form are :nfd, :nfc, :nfkd, and :nfkc"
   (declare (type (member :nfd :nfkd :nfc :nfkc) form))
   #!-sb-unicode
@@ -571,16 +576,13 @@ The result string is not guaranteed to have the same length as the input."
 ;;; (nobrk) prevents a break between `first` and `second`
 ;;; Setting flag=T/state=:nobrk-next prevents a break between `second` and `htird`
 
-(defun between (lower-bound item upper-bound)
-  (and (<= lower-bound item) (<= item upper-bound)))
-
 ;; Word breaking sets this to make their algorithms less tricky
 (defvar *other-break-special-graphemes* nil)
 (defun grapheme-break-type (char)
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
         (not-spacing-mark
-         '(#x102B #x102C #x1038 #x1062 #x1063 #x1064 #x1067 #x1068 #x1069
+         #(#x102B #x102C #x1038 #x1062 #x1063 #x1064 #x1067 #x1068 #x1069
            #x106A #x106B #x106C #x106D #x1083 #x1087 #x1088 #x1089 #x108A
            #x108B #x108C #x108F #x109A #x109B #x109C #x19B0 #x19B1 #x19B2
            #x19B3 #x19B4 #x19B8 #x19B9 #x19BB #x19BC #x19BD #x19BE #x19BF
@@ -592,18 +594,18 @@ The result string is not guaranteed to have the same length as the input."
       ((or (member gc '(:Mn :Me))
            (proplist-p char :other-grapheme-extend)
            (and *other-break-special-graphemes*
-                (member gc '(:Mc :Cf)) (not (between #x200B cp #x200D))))
+                (member gc '(:Mc :Cf)) (not (<= #x200B cp #x200D))))
        :extend)
       ((or (member gc '(:Zl :Zp :Cc :Cs :Cf))
            ;; From Cn and Default_Ignorable_Code_Point
-           (ord-member cp '(#x2065 #xE0000))
-           (between #xFFF0 cp #xFFF8)
-           (between #xE0002 cp #xE001F)
-           (between #xE0080 cp #xE00FF)
-           (between #xE01F0 cp #xE0FFF)) :control)
-      ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
+           (eql cp #x2065) (eql cp #xE0000)
+           (<= #xFFF0 cp #xFFF8)
+           (<= #xE0002 cp #xE001F)
+           (<= #xE0080 cp #xE00FF)
+           (<= #xE01F0 cp #xE0FFF)) :control)
+      ((<= #x1F1E6 cp #x1F1FF) :regional-indicator)
       ((and (or (eql gc :Mc)
-                (ord-member cp '(#x0E33 #x0EB3)))
+                (eql cp #x0E33) (eql cp #x0EB3))
             (not (ord-member cp not-spacing-mark))) :spacing-mark)
       (t (hangul-syllable-type char)))))
 
@@ -638,30 +640,30 @@ grapheme breaking rules specified in UAX #29"
   (when (listp char) (setf char (car char)))
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
-        (newlines '((#xB #xC) (#x0085 #x0085) (#x2028 #x2029)))
+        (newlines #(#xB #xC #x0085 #x0085 #x2028 #x2029))
         (hebrew-letters
-         '((#x05D0 #x05EA) (#x05F0 #x05F2) (#xFB1D #xFB1D) (#xFB1F #xFB28)
-           (#xFB2A #xFB36) (#xFB38 #xFB3C) (#xFB3E #xFB3E) (#xFB40 #xFB41)
-           (#xFB43 #xFB44) (#xFB46 #xFB4F)))
+         #(#x05D0 #x05EA #x05F0 #x05F2 #xFB1D #xFB1D #xFB1F #xFB28
+           #xFB2A #xFB36 #xFB38 #xFB3C #xFB3E #xFB3E #xFB40 #xFB41
+           #xFB43 #xFB44 #xFB46 #xFB4F))
         ;; Ranges from Scripts.txt adjusted to include extra values from UAX #29
         (katakana
-         '((#x3031 #x3035) (#x309B #x309C) (#x30A0 #x30FA) (#x30FC #x30FE)
-           (#x30FF #x30FF) (#x31F0 #x31FF) (#x32D0 #x32FE) (#x3300 #x3357)
-           (#xFF66 #xFF9D) (#x1B000 #x1B000)))
+         #(#x3031 #x3035 #x309B #x309C #x30A0 #x30FA #x30FC #x30FE
+           #x30FF #x30FF #x31F0 #x31FF #x32D0 #x32FE #x3300 #x3357
+           #xFF66 #xFF9D #x1B000 #x1B000))
         ;; TODO: Slightly over-broad according to UAX #14, but can't fix
         ;; until we have the line-breaking categories implemented
         (complex-context-blocks
-         '((#x0E00 #x0E7F) (#x0E80 #x0EFF) (#x1000 #x109F) (#x1780 #x17FF)
-           (#x1950 #x197F) (#x1980 #x19DF) (#x1A20 #x1AAF) (#xAA60 #xAA7F)
-           (#xAA80 #xAADF)))
+         #(#x0E00 #x0E7F #x0E80 #x0EFF #x1000 #x109F #x1780 #x17FF
+           #x1950 #x197F #x1980 #x19DF #x1A20 #x1AAF #xAA60 #xAA7F
+           #xAA80 #xAADF))
         (hiragana
-         '((#x3041 #x3096) (#x309D #x309F) (#x1B001 #x1B001) (#x1F200 #x1F200)))
-        (midnumlet '(#x002E #x2018 #x2019 #x2024 #xFE52 #xFF07 #xFF0E))
+         #(#x3041 #x3096 #x309D #x309F #x1B001 #x1B001 #x1F200 #x1F200))
+        (midnumlet #(#x002E #x2018 #x2019 #x2024 #xFE52 #xFF07 #xFF0E))
         (midletter
-         '(#x003A #x00B7 #x002D7 #x0387 #x05F4 #x2027 #xFE13 #xFE55 #xFF1A))
+         #(#x003A #x00B7 #x002D7 #x0387 #x05F4 #x2027 #xFE13 #xFE55 #xFF1A))
         (midnum
          ;; Grepping of Line_Break = IS adjusted per UAX #29
-         '(#x002C #x003B #x037E #x0589 #x060C #x060D #x066C #x07F8 #x2044
+         #(#x002C #x003B #x037E #x0589 #x060C #x060D #x066C #x07F8 #x2044
            #xFE10 #xFE14 #xFE50 #xFE54 #xFF0C #xFF1B)))
     (cond
       ((not char) nil)
@@ -672,8 +674,8 @@ grapheme breaking rules specified in UAX #29"
       ((ordered-ranges-member cp newlines) :newline)
       ((or (eql (grapheme-break-type char) :extend)
            (eql gc :mc)) :extend)
-      ((between #x1F1E6 cp #x1F1FF) :regional-indicator)
-      ((and (eql gc :Cf) (not (between #x200B cp #x200D))) :format)
+      ((<= #x1F1E6 cp #x1F1FF) :regional-indicator)
+      ((and (eql gc :Cf) (not (<= #x200B cp #x200D))) :format)
       ((ordered-ranges-member cp katakana) :katakana)
       ((ordered-ranges-member cp hebrew-letters) :hebrew-letter)
       ((and (or (alphabetic-p char) (= cp #x05F3))
@@ -683,7 +685,7 @@ grapheme breaking rules specified in UAX #29"
       ((ord-member cp midnumlet) :midnumlet)
       ((ord-member cp midletter) :midletter)
       ((ord-member cp midnum) :midnum)
-      ((or (and (eql gc :Nd) (not (between #xFF10 cp #xFF19))) ;Fullwidth digits
+      ((or (and (eql gc :Nd) (not (<= #xFF10 cp #xFF19))) ;Fullwidth digits
            (eql cp #x066B)) :numeric)
       ((eql gc :Pc) :extendnumlet)
       (t nil))))
@@ -754,13 +756,13 @@ word breaking rules specified in UAX #29"
   (when (listp char) (setf char (car char)))
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
-        (aterms '(#x002E #x2024 #xFE52 #xFF0E))
+        (aterms #(#x002E #x2024 #xFE52 #xFF0E))
         (scontinues
-         '(#x002C #x002D #x003A #x055D #x060C #x060D #x07F8 #x1802 #x1808
+         #(#x002C #x002D #x003A #x055D #x060C #x060D #x07F8 #x1802 #x1808
            #x2013 #x2014 #x3001 #xFE10 #xFE11 #xFE13 #xFE31 #xFE32 #xFE50
            #xFE51 #xFE55 #xFE58 #xFE63 #xFF0C #xFF0D #xFF1A #xFF64))
         (additional-quotes
-         '(#x0028 #x005B #x007B #x0F3A #x0F3C #x169B #x201A #x201E #x2045
+         #(#x0028 #x005B #x007B #x0F3A #x0F3C #x169B #x201A #x201E #x2045
            #x207D #x208D #x2308 #x230A #x2329 #x275B #x275C #x275D #x275E
            #x2768 #x276A #x276C #x276E #x2770 #x2772 #x2774 #x27C5 #x27E6
            #x27E8 #x27EA #x27EC #x27EE #x2983 #x2985 #x2987 #x2989 #x298B
@@ -775,14 +777,14 @@ word breaking rules specified in UAX #29"
       ((= cp 13) :CR)
       ((or (eql (grapheme-break-type char) :extend)
            (eql gc :mc)) :extend)
-      ((ord-member cp '(#x0085 #x2028 #x2029)) :sep)
-      ((and (eql gc :Cf) (not (between #x200C cp #x200D))) :format)
+      ((or (eql cp #x0085) (<= #x2028 cp #x2029)) :sep)
+      ((and (eql gc :Cf) (not (<= #x200C cp #x200D))) :format)
       ((whitespace-p char) :sp)
       ((lowercase-p char) :lower)
       ((or (uppercase-p char) (eql gc :Lt)) :upper)
-      ((or (alphabetic-p char) (ord-member cp '(#x00A0 #x05F3))) :oletter)
-      ((or (and (eql gc :Nd) (not (between #xFF10 cp #xFF19))) ;Fullwidth digits
-           (between #x066B cp #x066C)) :numeric)
+      ((or (alphabetic-p char) (eql cp #x00A0) (eql cp #x05F3)) :oletter)
+      ((or (and (eql gc :Nd) (not (<= #xFF10 cp #xFF19))) ;Fullwidth digits
+           (<= #x066B cp #x066C)) :numeric)
       ((ord-member cp aterms) :aterm)
       ((ord-member cp scontinues) :scontinue)
       ((proplist-p char :sterm) :sterm)
