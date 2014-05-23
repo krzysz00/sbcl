@@ -660,7 +660,8 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
              ;; takes two lists of UB32 (with the caveate that list1[0] needs its
              ;; high 8 bits free (codepoints always have that) and do
              (let* ((l1 (length list1)) (l2 (length list2))
-                    (tag (dpb l1 (byte 4 28) (dpb l2 (byte 4 24) (car list1)))))
+                    (tag (dpb l1 (byte 4 28) (dpb l2 (byte 5 23) (car list1)))))
+               (assert (<= l1 3))
                (write-4-byte tag stream)
                (map nil #'(lambda (l) (write-4-byte l stream)) (append (cdr list1) list2)))))
       (maphash #'length-tag *collation-table*)))
@@ -674,7 +675,8 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
     (with-standard-io-syntax
       (let ((*print-pretty* t))
         (write-string ";;; The highest primary variable collation index")
-        (prin1 *maximum-variable-key*)))))
+        (terpri)
+        (prin1 *maximum-variable-key*) (terpri)))))
 
 (defun output ()
   (output-misc-data)

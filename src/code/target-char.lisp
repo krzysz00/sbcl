@@ -34,6 +34,10 @@
         ((< item i) (return-from sorted-position nil))
         (t (incf index))))) nil)
 
+(defun pack-3-codepoints (first &optional (second 0) (third 0))
+  (declare (type (unsigned-byte 21) first second third))
+  (sb!c::mask-signed-field 63 (logior first (ash second 21) (ash third 42))))
+
 (macrolet
     ((frob ()
        (flet ((file (name type)
@@ -58,7 +62,9 @@
                (primary-compositions (read-ub8-vector (file "comp" "dat")))
                (case-data (read-ub8-vector (file "case" "dat")))
                (case-pages (with-open-file (s (file "casepages" "lisp-expr"))
-                             (read s))))
+                             (read s)))
+               (collations (read-ub8-vector (file "collation" "dat"))))
+
            `(progn
               (declaim (type (simple-array (unsigned-byte 8) (*))
                               **character-misc-database**))
@@ -70,6 +76,8 @@
               (defglobal **character-case-pages** ',case-pages)
               (defglobal **character-primary-compositions** ,primary-compositions)
               (defglobal **character-cases** ,case-data)
+              (defglobal **character-collations** ,collations)
+
               (defun !character-database-cold-init ()
                 (flet ((make-ubn-vector (raw-bytes n)
                          (let ((new-array
@@ -92,8 +100,9 @@
                         **character-case-pages** ',case-pages
                         **character-decompositions**
                         (make-ubn-vector ,decompositions 3))
+
                   (setf **character-primary-compositions**
-                      (let ((table (make-hash-table))
+                        (let ((table (make-hash-table))
                             (info (make-ubn-vector ,primary-compositions 3)))
                         #!+sb-unicode
                         (dotimes (i (/ (length info) 3))
@@ -101,42 +110,74 @@
                                               (aref info (1+ (* 3 i))))
                                          table)
                                 (code-char (aref info (+ (* 3 i) 2)))))
-                        table)))
-                (setf **character-cases**
-                      (let* ((table
-                              (make-hash-table ;; 64 characters in each page
-                               :size (* 64 (length **character-case-pages**))
-                               :hash-function
-                               (lambda (key)
-                                 (let ((page (sorted-position
-                                              (ash key 6)
-                                              **character-case-pages**)))
-                                   (if page
-                                       (+ (ash page 6) (ldb (byte 6 0) key))
-                                       0)))))
-                             (info ,case-data) (index 0)
-                             (length (length info)))
-                        (labels ((read-codepoint ()
-                                   (let* ((b1 (aref info index))
-                                          (b2 (aref info (incf index)))
-                                          (b3 (aref info (incf index))))
-                                     (incf index)
-                                     (dpb b1 (byte 8 16)
-                                          (dpb b2 (byte 8 8) b3))))
-                                 (read-length-tagged ()
-                                   (let ((len (aref info index)) ret)
-                                     (incf index)
-                                     (if (zerop len) (read-codepoint)
-                                         (progn
-                                           (dotimes (i len)
-                                             (push (read-codepoint) ret))
-                                           (nreverse ret))))))
-                          (loop until (>= index length)
-                             for key = (read-codepoint)
-                             for upper = (read-length-tagged)
-                             for lower = (read-length-tagged)
-                             do (setf (gethash key table) (cons upper lower))))
-                        table)))
+                        table))
+
+                  (setf **character-cases**
+                        (let* ((table
+                                (make-hash-table ;; 64 characters in each page
+                                 :size (* 64 (length **character-case-pages**))
+                                 :hash-function
+                                 (lambda (key)
+                                   (let ((page (sorted-position
+                                                (ash key 6)
+                                                **character-case-pages**)))
+                                     (if page
+                                         (+ (ash page 6) (ldb (byte 6 0) key))
+                                         0)))))
+                               (info ,case-data) (index 0)
+                               (length (length info)))
+                          (labels ((read-codepoint ()
+                                     (let* ((b1 (aref info index))
+                                            (b2 (aref info (incf index)))
+                                            (b3 (aref info (incf index))))
+                                       (incf index)
+                                       (dpb b1 (byte 8 16)
+                                            (dpb b2 (byte 8 8) b3))))
+                                   (read-length-tagged ()
+                                     (let ((len (aref info index)) ret)
+                                       (incf index)
+                                       (if (zerop len) (read-codepoint)
+                                           (progn
+                                             (dotimes (i len)
+                                               (push (read-codepoint) ret))
+                                             (nreverse ret))))))
+                            (loop until (>= index length)
+                               for key = (read-codepoint)
+                               for upper = (read-length-tagged)
+                               for lower = (read-length-tagged)
+                               do (setf (gethash key table) (cons upper lower))))
+                          table))
+
+                  (setf **character-collations**
+                        (let* ((table (make-hash-table))
+                               (index 0) (info (make-ubn-vector ,collations 4))
+                               (len (length info)))
+                          (loop while (< index len) do
+                               (let* ((entry-head (aref info index))
+                                      (cp-length (ldb (byte 4 28) entry-head))
+                                      (key-length (ldb (byte 5 23) entry-head))
+                                      (key (make-array
+                                            key-length
+                                            :element-type '(unsigned-byte 32)))
+                                      (codepoints nil))
+                                 (/hexstr index)
+                                 (assert (and (/= cp-length 0) (/= key-length 0)))
+                                 (loop repeat cp-length do
+                                      (/show0 "Raw value") (/hexstr (aref info index))
+                                      (push (dpb 0 (byte 10 22) (aref info index))
+                                            codepoints)
+                                      (incf index))
+                                 (setf codepoints (nreverse codepoints))
+                                 (/show0 "Finished codepoints") (/hexstr codepoints)
+                                 (dotimes (i key-length)
+                                   (setf (aref key i) (aref info index))
+                                   (incf index))
+                                 (/show0 "Finished key") (/hexstr key)
+                                 (setf (gethash
+                                        (apply #'pack-3-codepoints codepoints)
+                                        table) key)))
+                        table))))
+
               ,(with-open-file (stream (file "ucd-names" "lisp-expr")
                                        :direction :input
                                        :element-type 'character)
@@ -175,6 +216,7 @@
                                       (setq *unicode-character-name-database*
                                             (cons ',code->name ',name->code)
                                             *unicode-character-name-huffman-tree* ',tree))))))))))
+
   (frob))
 #+sb-xc-host (!character-name-database-cold-init)
 
