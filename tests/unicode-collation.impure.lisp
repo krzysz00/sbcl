@@ -36,7 +36,7 @@
          while line
          unless (or (eql 0 (position #\# line)) (string= line ""))
          do (let ((string (parse-string (subseq line 0 (position #\; line)))))
-              (assert (unicode< previous-string string))
+              (assert (unicode<= previous-string string))
               (setf previous-string string))))))
 
 (test-collation)

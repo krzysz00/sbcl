@@ -1015,7 +1015,7 @@ sentence breaking rules specified in UAX #29"
        (cond ((< i j) (return-from vector< t))
              ((> i j) (return-from vector< nil))))
   ;; If there's no differences, shortest vector wins
-  (<= (length vector1) (length vector2)))
+  (< (length vector1) (length vector2)))
 
 (defun unicode= (string1 string2 &key (start1 0) end1 (start2 0) end2 (strict t))
   #!+sb-doc
@@ -1032,9 +1032,14 @@ If :STRICT is NIL, UNICODE= tests compatibility equavalence instead."
 Algorithm, The function uses an untailored Default Unicode Collation Element Table
 to produce the sort keys. The function uses the Shifted method for dealing
 with variable-weight characters, as described in UTS #10"
-  (let ((s1 (subseq string1 start1 end1))
-        (s2 (subseq string2 start2 end2)))
-    (vector< (sort-key s1) (sort-key s2))))
+  (let* ((s1 (subseq string1 start1 end1))
+         (s2 (subseq string2 start2 end2))
+         (k1 (sort-key s1)) (k2 (sort-key s2)))
+    (if (equalp k1 k2)
+        (flet ((to-codepoints (str)
+                 (map 'vector #'char-code str)))
+          (vector< (to-codepoints s1) (to-codepoints s2)))
+        (vector< k1 k2))))
 
 (defun unicode<= (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
