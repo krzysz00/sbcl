@@ -265,7 +265,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                                 (let ((%digit (parse-integer digit)))
                                   (if (string= digit decimal-digit)
                                       ;; decimal-digit-p is in bit 6
-                                      (+ (ash 1 6) %digit) %digit))))
+                                      (logior (ash 1 6) %digit) %digit))))
                (upper-index (unless (string= "" simple-uppercase)
                               (parse-integer simple-uppercase :radix 16)))
                (lower-index (unless (string= "" simple-lowercase)
@@ -292,7 +292,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
                 (setf decomposition
                       (list (cdr (assoc code-point *decomposition-corrections*)))))
               (setf decomposition-info
-                    (+ (length decomposition) (if compatibility-p 128 0)))
+                    (logior (length decomposition) (if compatibility-p 128 0)))
               (unless (logbitp 7 decomposition-info)
                 ;; Primary composition excludes:
                 ;; * singleton decompositions;
@@ -341,9 +341,10 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
 
           (when (> ccc 255)
             (error "canonical combining class too large ~A" ccc))
-          (let* ((flags (+ (if cl-both-case-p (ash 1 7) 0)
-                           (if (gethash code-point *case-mapping*) (ash 1 6) 0)
-                           (if bidi-mirrored-p (ash 1 5) 0)))
+          (let* ((flags (logior
+                         (if cl-both-case-p (ash 1 7) 0)
+                         (if (gethash code-point *case-mapping*) (ash 1 6) 0)
+                         (if bidi-mirrored-p (ash 1 5) 0)))
                  (misc-index (hash-misc gc-index bidi-index ccc digit-index
                                         decomposition-info flags eaw-index))
                  (result (make-ucd :misc misc-index
@@ -485,7 +486,7 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
   ;; 0 <= secondary <= #x100
   ;; 0 <= tertiary <= #x1E (#x1F allowed)
   ;; Because of this, the bit packs don't overlap
-  (+ (ash primary 16) (ash secondary 5) tertiary))
+  (logior (ash primary 16) (ash secondary 5) tertiary))
 
 (defun parse-collation-line (line)
   (destructuring-bind (%code-points %keys) (split-string line #\;)
@@ -582,16 +583,19 @@ bidi-mirrored-p. Length should be adjusted when the standard changes.")
          for uniq-ucd-entries = nil do
            (loop for low-page from 0 to #xFF do
                 (pushnew
-                 (gethash (+ low-page (ash high-page 8)) *ucd-entries*)
+                 (gethash (logior low-page (ash high-page 8)) *ucd-entries*)
                  uniq-ucd-entries :test #'equalp))
            (flet ((write-2-byte (int stream)
                     (write-byte (ldb (byte 8 8) int) stream)
                     (write-byte (ldb (byte 8 0) int) stream)))
              (case (length uniq-ucd-entries)
                (0 (error "Somehow, a high page has no codepoints in it."))
-               (1 (write-2-byte (+ (ash 1 15) (ucd-misc (car uniq-ucd-entries))) high-pages))
+               (1 (write-2-byte (logior
+                                 (ash 1 15)
+                                 (ucd-misc (car uniq-ucd-entries)))
+                                high-pages))
                (t (loop for low-page from 0 to #xFF
-                     for cp = (+ low-page (ash high-page 8))
+                     for cp = (logior low-page (ash high-page 8))
                      for entry = (gethash cp *ucd-entries*) do
                        (write-2-byte (ucd-misc entry) low-pages)
                        (write-2-byte (ucd-decomp entry) low-pages)

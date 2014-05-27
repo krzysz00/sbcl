@@ -20,8 +20,10 @@
   (import 'SB!IMPL::**CHARACTER-PRIMARY-COMPOSITIONS**)
   (import 'SB!IMPL::**CHARACTER-CASES**)
   (import 'SB!IMPL::**CHARACTER-CASE-PAGES**)
+  (import 'SB!IMPL::**CHARACTER-COLLATIONS**)
   (import 'SB!IMPL::MISC-INDEX)
-  (import 'SB!IMPL::CLEAR-FLAG))
+  (import 'SB!IMPL::CLEAR-FLAG)
+  (import 'SB!IMPL::PACK-3-CODEPOINTS))
 
 (defparameter **special-numerics**
   '#.(with-open-file (stream
@@ -222,6 +224,7 @@ which loosely corresponds to the set of \"Chinese characters\""
   "Returns T if the given character is whitespace according to Unicode
 and NIL otherwise"
   (proplist-p character :whitespace))
+
 
 ;;; Implements UAX#15: Normalization Forms
 (defun char-decomposition-info (char)
@@ -897,6 +900,161 @@ sentence breaking rules specified in UAX #29"
           (t (nobrk))))))))
 
 
-;;; Unicode line breaking
-;;; This code has a slightly different structure than the other breaking
-;;; algorithms, so it gets its own section
+;;; Collation
+(defparameter **maximum-variable-primary-element**
+  #.(with-open-file (stream
+                     (merge-pathnames
+                      (make-pathname
+                       :directory
+                       '(:relative :up :up "output")
+                       :name "other-collation-info" :type "lisp-expr")
+                      sb!xc:*compile-file-truename*)
+                     :direction :input
+                     :element-type 'character)
+      (read stream)))
+
+(defun unpack-collation-key (key)
+  (loop for value across key collect
+       (list (ldb (byte 16 16) value)
+             (ldb (byte 11 5) value)
+             (ldb (byte 5 0) value))))
+
+(defun variable-p (unpacked-key)
+  (<= 1 (car unpacked-key) **maximum-variable-primary-element**))
+
+(defun collation-key (char1 &optional char2 char3 &rest overflow)
+  ;; There are never more than three characters in a contraction, right?
+  (when overflow (return-from collation-key nil))
+  ;; hack around the inability of the cross-compiler to deal with characters
+  (when (not char2) (setf char2 (code-char 0)))
+  (when (not char3) (setf char3 (code-char 0)))
+  (let ((packed-key (gethash (pack-3-codepoints
+                              (char-code char1)
+                              (char-code char2)
+                              (char-code char3))
+                             **character-collations**)))
+    (if packed-key (unpack-collation-key packed-key)
+        (when (char= (code-char 0) char2 char3)
+          (let* ((cp (char-code char1))
+                 (base
+                  (if (proplist-p char1 :unified-ideograph)
+                     (if (or (<= #x4E00 cp #x9FFF)
+                             (<= #xF900 cp #xFAFF))
+                         #xFB40 #xFB80) #xFBC0))
+                 (a (+ base (ash cp -15)))
+                 (b (logior #.(ash 1 15) (logand cp #x7FFFF))))
+            (list (list a #x20 #x2) (list b 0 0)))))))
+
+(defun generic-apply (fn args)
+  (apply fn (coerce args 'list)))
+
+(defun sort-key (string)
+   (let* ((str (normalize-string string :nfd))
+          (i 0) (len (length str)) max-match new-i
+          sort-key)
+     (loop while (< i len) do
+          (loop for offset from 1 to 3
+               for index = (+ i offset)
+               while (<= index len)
+               when (generic-apply #'collation-key (subseq str i index))
+             do (setf max-match
+                      (generic-apply #'collation-key (subseq str i index))
+                      new-i index))
+          (loop for index from new-i below len
+             for char = (char str index)
+             until (eql 0 (combining-class char))
+             unless (and (>= (- index new-i) 1)
+                         ;; Combiners are sorted, we only have to look back
+                         ;; one step (see canonically-compose)
+                         (>= (combining-class (char str (1- index)))
+                             (combining-class char)))
+             do (rotatef (char str new-i) (char str index))
+               (if (generic-apply #'collation-key (subseq str i (1+ new-i)))
+                   (setf max-match
+                         (generic-apply #'collation-key (subseq str i (1+ new-i)))
+                         new-i (1+ new-i))
+                   (rotatef (char str new-i) (char str index))))
+          (loop for key in max-match do (push key sort-key))
+          (setf i new-i))
+     (setf
+      sort-key
+      (let (after-variable)
+        (mapcar
+         #'(lambda (key)
+             (destructuring-bind (k1 k2 k3) key
+               (cond
+                 ((= k1 k2 k3 0) (list k1 k2 k3 0))
+                 ((and (/= k1 0) (variable-p key))
+                  (setf after-variable t)
+                  (list 0 0 0 k1))
+                 ((/= k1 0) (setf after-variable nil)
+                  (list k1 k2 k3 #xFFFF))
+                 ((and (= k1 0) (/= k3 0))
+                  (if after-variable
+                      (list 0 0 0 0)
+                      (list k1 k2 k3 #xFFFF))))))
+         (nreverse sort-key))))
+     (let (primary secondary tertiary quatenary)
+       (loop for (k1 k2 k3 k4) in sort-key do
+            (when (/= k1 0) (push k1 primary))
+            (when (/= k2 0) (push k2 secondary))
+            (when (/= k3 0) (push k3 tertiary))
+            (when (/= k4 0) (push k4 quatenary)))
+       (setf primary (nreverse primary)
+             secondary (nreverse secondary)
+             tertiary (nreverse tertiary)
+             quatenary (nreverse quatenary))
+       (concatenate 'vector primary (list 0) secondary (list 0)
+                    tertiary (list 0) quatenary))))
+
+(defun vector< (vector1 vector2)
+  (loop for i across vector1
+     for j across vector2
+     do
+       (cond ((< i j) (return-from vector< t))
+             ((> i j) (return-from vector< nil))))
+  ;; If there's no differences, shortest vector wins
+  (<= (length vector1) (length vector2)))
+
+(defun unicode= (string1 string2 &key (start1 0) end1 (start2 0) end2 (strict t))
+  #!+sb-doc
+  "Determines whether string1 and string2 are canonically equivalent according
+to Unicode. The start and end arguments behave like the arguments to string=.
+If :strict is NIL, unicode= tests compatibility equavalence instead."
+  (let ((str1 (normalize-string (subseq string1 start1 end1) (if strict :nfd :nfkd)))
+        (str2 (normalize-string (subseq string2 start2 end2) (if strict :nfd :nfkd))))
+    (string= str1 str2)))
+
+(defun unicode< (string1 string2 &key (start1 0) end1 (start2 0) end2)
+  #!+sb-doc
+  "Determines whether string1 sorts before string2 using the Unicode Collation
+Algorithm, The function uses an untailored Default Unicode Collation Element Table
+to produce the sort keys. The function uses the Shifted method for dealing
+with variable-weight characters, as described in UTS #10"
+  (let ((s1 (subseq string1 start1 end1))
+        (s2 (subseq string2 start2 end2)))
+    (vector< (sort-key s1) (sort-key s2))))
+
+(defun unicode<= (string1 string2 &key (start1 0) end1 (start2 0) end2)
+  #!+sb-doc
+  "Tests if string1 and string2 are either unicode< or unicode="
+  (or
+   (unicode= string1 string2 :start1 start1 :end1 end1
+             :start2 start2 :end2 end2)
+   (unicode< string1 string2 :start1 start1 :end1 end1
+             :start2 start2 :end2 end2)))
+
+(defun unicode> (string1 string2 &key (start1 0) end1 (start2 0) end2)
+  #!+sb-doc
+  "Tests if string2 is unicode< string1."
+   (unicode< string2 string1 :start1 start2 :end1 end2
+             :start2 start1 :end2 end1))
+
+(defun unicode>= (string1 string2 &key (start1 0) end1 (start2 0) end2)
+  #!+sb-doc
+  "Tests if string1 and string2 are either unicode= or unicode>"
+  (or
+   (unicode= string1 string2 :start1 start1 :end1 end1
+             :start2 start2 :end2 end2)
+   (unicode> string1 string2 :start1 start1 :end1 end1
+             :start2 start2 :end2 end2)))

@@ -2579,7 +2579,12 @@ SB-KERNEL) have been undone, but probably more remain."
                "CASEFOLD"
                "GRAPHEMES"
                "WORDS"
-               "SENTENCES"))
+               "SENTENCES"
+               "UNICODE="
+               "UNICODE<"
+               "UNICODE<="
+               "UNICODE>"
+               "UNICODE>="))
 
    #s(sb-cold:package-data
       :name "SB!UNIX"
