@@ -108,24 +108,24 @@
 
 (defun general-category (character)
   #!+sb-doc
-  "Returns the general category of a character as it appears in UnicodeData.txt"
+  "Returns the general category of CHARACTER as it appears in UnicodeData.txt"
   (gethash (sb!impl::ucd-general-category character) *general-categories*))
 
 (defun bidi-class (character)
   #!+sb-doc
-  "Returns the bidirectional class of a character"
+  "Returns the bidirectional class of CHARACTER"
   (gethash
    (aref **character-misc-database** (+ 1 (misc-index character)))
    *bidi-classes*))
 
 (defun combining-class (character)
   #!+sb-doc
-  "Returns the canonical combining class (CCC) of a character"
+  "Returns the canonical combining class (CCC) of CHARACTER"
   (aref **character-misc-database** (+ 2 (misc-index character))))
 
 (defun decimal-digit (character)
   #!+sb-doc
-  "Returns the decimal digit value associated with `character` or NIL if
+  "Returns the decimal digit value associated with CHARACTER or NIL if
 there is no such value.
 
 The only characters in Unicode with a decimal digit value are those
@@ -136,7 +136,7 @@ Because of this, `(decimal-digit c) <=> (digit-char-p c 10)` in
 
 (defun digit-value (character)
   #!+sb-doc
-  "Returns the Unicode digit value of a character or NIL if it doesn't exist.
+  "Returns the Unicode digit value of CHARACTER or NIL if it doesn't exist.
 
 Digit values are guaranteed to be integers between 0 and 9 inclusive.
 All characters with decimal digit values have the same digit value,
@@ -149,7 +149,7 @@ that have a digit value but no decimal digit value"
 
 (defun numeric-value (character)
   #!+sb-doc
-  "Returns the numeric value of a character or NIL if there is no such value.
+  "Returns the numeric value of CHARACTER or NIL if there is no such value.
 
 Numeric value is the most general of the Unicode numeric properties.
 The only constraint on the numeric value is that it be a rational number."
@@ -158,14 +158,14 @@ The only constraint on the numeric value is that it be a rational number."
 
 (defun mirrored-p (character)
   #!+sb-doc
-  "Returns T if the given character needs to be mirrored in bidirectional text.
+  "Returns T if CHARACTER needs to be mirrored in bidirectional text.
 Otherwise, returns NIL."
   (logbitp 5 (aref **character-misc-database**
                     (+ 5 (misc-index character)))))
 
 (defun east-asian-width (character)
   #!+sb-doc
-  "Returns the East Asian Width property of the given character as
+  "Returns the East Asian Width property of CHARACTER as
 one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
 :W (Wide), :F (Fullwidth), or :Na (Not applicable)"
   (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
@@ -173,7 +173,7 @@ one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
 
 (defun hangul-syllable-type (character)
   #!+sb-doc
-  "Returns the Hangul syllable type of the given character.
+  "Returns the Hangul syllable type of CHARACTER.
 The syllable type can be one of :L, :V, :T, :LV, or :LVT.
 If the character is not a Hangul syllable or Jamo, returns NIL"
   (let ((cp (char-code character)))
@@ -192,36 +192,36 @@ If the character is not a Hangul syllable or Jamo, returns NIL"
 
 (defun uppercase-p (character)
   #!+sb-doc
-  "Returns T if a charatrer has the Unicode property Uppercase and NIL otherwise"
+  "Returns T if CHARACTER has the Unicode property Uppercase and NIL otherwise"
   (or (eql (general-category character) :Lu) (proplist-p character :other-uppercase)))
 
 (defun lowercase-p (character)
   #!+sb-doc
-  "Returns T if a charatrer has the Unicode property Lowercase and NIL otherwise"
+  "Returns T if a CHARACTER has the Unicode property Lowercase and NIL otherwise"
   (or (eql (general-category character) :Ll) (proplist-p character :other-lowercase)))
 
 (defun cased-p (character)
   #!+sb-doc
-  "Returns T if the given character has a (Unicode) case, and NIL otherwise"
+  "Returns T if CHARACTER has a (Unicode) case, and NIL otherwise"
   (or (uppercase-p character) (lowercase-p character)
       (eql (general-category character) :Lt)))
 
 (defun alphabetic-p (character)
   #!+sb-doc
-  "Returns T if a character is Alphabetic according to the Unicode standard
+  "Returns T if CHARACTER is Alphabetic according to the Unicode standard
 and NIL otherwise"
   (or (not (not (member (general-category character) '(:Lu :Ll :Lt :Lm :Lo :Nl))))
       (proplist-p character :other-alphabetic)))
 
 (defun ideographic-p (character)
   #!+sb-doc
-  "Returns T if the character has the Unicode property Ideographic,
+  "Returns T if CHARACTER has the Unicode property Ideographic,
 which loosely corresponds to the set of \"Chinese characters\""
   (proplist-p character :ideographic))
 
 (defun whitespace-p (character)
   #!+sb-doc
-  "Returns T if the given character is whitespace according to Unicode
+  "Returns T if CHARACTER is whitespace according to Unicode
 and NIL otherwise"
   (proplist-p character :whitespace))
 
@@ -440,8 +440,9 @@ and NIL otherwise"
           (lstring result)))))
 
 (defun normalize-string (string &optional (form :nfd))
-  "Normalize string to the Unicode normalization form form.
-   Acceptable values for form are :nfd, :nfc, :nfkd, and :nfkc"
+  #!+sb-doc
+  "Normalize STRING to the Unicode normalization form form.
+   Acceptable values for form are :NFD, :NFC, :NFKD, and :NFKC"
   (declare (type (member :nfd :nfkd :nfc :nfkc) form))
   #!-sb-unicode
   (etypecase string
@@ -541,19 +542,19 @@ and NIL otherwise"
 
 (defun uppercase (string)
   #!+sb-doc
-  "Returns the full uppercase of string according to the Unicode standard.
-The result string is not guaranteed to have the same length as the input."
+  "Returns the full uppercase of STRING according to the Unicode standard.
+The result is not guaranteed to have the same length as the input."
   (string-somethingcase #'char-uppercase string))
 
 (defun lowercase (string)
   #!+sb-doc
-  "Returns the full lowercase of string according to the Unicode standard.
-The result string is not guaranteed to have the same length as the input."
+  "Returns the full lowercase of STRING according to the Unicode standard.
+The result is not guaranteed to have the same length as the input."
   (string-somethingcase #'char-lowercase string))
 
 (defun titlecase (string)
   #!+sb-doc
-  "Returns the titlecase of the given string. The resulting string can
+  "Returns the titlecase of STRING. The resulting string can
 be longer than the input"
   (let ((words (words string))
         (cased nil))
@@ -566,10 +567,10 @@ be longer than the input"
 
 (defun casefold (string)
   #!+sb-doc
-  "Returns the full casefolding of string according to the Unicode standard.
+  "Returns the full casefolding of STRING according to the Unicode standard.
 Casefolding remove case information in a way that allaws the results to be used
 for case-insensitive comparisons.
-The result string is not guaranteed to have the same length as the input."
+The result is not guaranteed to have the same length as the input."
   (string-somethingcase #'char-foldcase string))
 
 
@@ -614,8 +615,8 @@ The result string is not guaranteed to have the same length as the input."
 
 (defun graphemes (string)
   #!+sb-doc
-  "Breaks the given string into graphemes acording to the default
-grapheme breaking rules specified in UAX #29"
+  "Breaks STRING into graphemes acording to the default
+grapheme breaking rules specified in UAX #29, returning a list of strings."
   (let* ((chars (coerce string 'list)) clusters (cluster (list (car chars))))
     (do ((first (car chars) second)
          (tail (cdr chars) (when tail (cdr tail)))
@@ -703,8 +704,8 @@ grapheme breaking rules specified in UAX #29"
 
 (defun words (string)
   #!+sb-doc
-  "Breaks the given string into words acording to the default
-word breaking rules specified in UAX #29"
+  "Breaks STRING into words acording to the default
+word breaking rules specified in UAX #29. Returns a list of strings"
   (let ((chars (mapcar
                  #'(lambda (s)
                      (let ((l (coerce s 'list)))
@@ -834,7 +835,7 @@ Specifically,
 
 (defun sentences (string)
   #!+sb-doc
-  "Breaks the given string into sentences acording to the default
+  "Breaks STRING into sentences acording to the default
 sentence breaking rules specified in UAX #29"
   (let ((special-handling '(:close :sp :sep :cr :lf :scontinue :sterm :aterm))
         (chars (sentence-prebreak string))
@@ -1018,16 +1019,16 @@ sentence breaking rules specified in UAX #29"
 
 (defun unicode= (string1 string2 &key (start1 0) end1 (start2 0) end2 (strict t))
   #!+sb-doc
-  "Determines whether string1 and string2 are canonically equivalent according
-to Unicode. The start and end arguments behave like the arguments to string=.
-If :strict is NIL, unicode= tests compatibility equavalence instead."
+  "Determines whether STRING1 and STRING2 are canonically equivalent according
+to Unicode. The START and END arguments behave like the arguments to STRING=.
+If :STRICT is NIL, UNICODE= tests compatibility equavalence instead."
   (let ((str1 (normalize-string (subseq string1 start1 end1) (if strict :nfd :nfkd)))
         (str2 (normalize-string (subseq string2 start2 end2) (if strict :nfd :nfkd))))
     (string= str1 str2)))
 
 (defun unicode< (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
-  "Determines whether string1 sorts before string2 using the Unicode Collation
+  "Determines whether STRING1 sorts before STRING2 using the Unicode Collation
 Algorithm, The function uses an untailored Default Unicode Collation Element Table
 to produce the sort keys. The function uses the Shifted method for dealing
 with variable-weight characters, as described in UTS #10"
@@ -1037,7 +1038,7 @@ with variable-weight characters, as described in UTS #10"
 
 (defun unicode<= (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
-  "Tests if string1 and string2 are either unicode< or unicode="
+  "Tests if STRING1 and STRING2 are either UNICODE< or UNICODE="
   (or
    (unicode= string1 string2 :start1 start1 :end1 end1
              :start2 start2 :end2 end2)
@@ -1046,13 +1047,13 @@ with variable-weight characters, as described in UTS #10"
 
 (defun unicode> (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
-  "Tests if string2 is unicode< string1."
+  "Tests if STRING2 is UNICODE< STRING1."
    (unicode< string2 string1 :start1 start2 :end1 end2
              :start2 start1 :end2 end1))
 
 (defun unicode>= (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
-  "Tests if string1 and string2 are either unicode= or unicode>"
+  "Tests if STRING1 and STRING2 are either UNICODE= or UNICODE>"
   (or
    (unicode= string1 string2 :start1 start1 :end1 end1
              :start2 start2 :end2 end2)
