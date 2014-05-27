@@ -544,11 +544,10 @@
   ;; RRX is a special case: it is encoded as ROR with an immediate
   ;; shift of 32 (0), and has no operand.
   (aver (register-p register))
-
   (make-shifter-operand :register register :function-code 3 :operand 0))
 
 (define-condition cannot-encode-immediate-operand (error)
-  ((value :initarg value)))
+  ((value :initarg :value)))
 
 (defun encodable-immediate (operand)
   ;; 32-bit immediate data is encoded as an 8-bit immediate data value
@@ -1744,7 +1743,9 @@
                           (:from-arm 0))))
     `(define-instruction ,name (segment &rest args)
        (:emitter
-        (with-condition-defaulted (args (condition float-reg arm-reg-1 arm-reg-2))
+        (with-condition-defaulted (args (condition ,@(if (eq direction :to-arm)
+                                                         '(arm-reg-1 arm-reg-2 float-reg)
+                                                         '(float-reg arm-reg-1 arm-reg-2))))
           (emit-fp-trt-instruction segment
                                    (conditional-opcode condition)
                                    #b1100010

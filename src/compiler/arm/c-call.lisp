@@ -11,7 +11,7 @@
 
 (in-package "SB!VM")
 
-(defconstant +number-stack-allocation-granularity+ n-word-bytes)
+(defconstant +number-stack-alignment-mask+ 7)
 
 (defconstant +max-register-args+ 4)
 
@@ -21,9 +21,9 @@
                  offset))
 
 (defstruct arg-state
-  (next-double-register 0)
-  (next-single-register 0)
   (num-register-args 0)
+  #!-arm-softfp
+  (fp-registers 0)
   (stack-frame-size 0))
 
 (defstruct (result-state (:copier nil))
@@ -65,17 +65,14 @@
 #!-arm-softfp
 (define-alien-type-method (single-float :arg-tn) (type state)
   (declare (ignore type))
-  (let ((register (arg-state-next-single-register state)))
-    (when (> register 15)
-      (error "Don't know how to handle alien single floats on stack."))
-    (prog1
-        (my-make-wired-tn 'single-float 'single-reg register)
-      (setf (arg-state-next-single-register state)
-            (max (1+ register)
-                 (* 2 (arg-state-next-double-register state))))
-      (setf (arg-state-next-double-register state)
-            (+ (/ (arg-state-next-single-register state) 2)
-               (if (evenp (arg-state-next-single-register state)) 0 1))))))
+  (let ((register (arg-state-fp-registers state)))
+    (cond ((> register 15)
+           (let ((frame-size (arg-state-stack-frame-size state)))
+             (setf (arg-state-stack-frame-size state) (1+ frame-size))
+             (my-make-wired-tn 'single-float 'single-stack frame-size)))
+          (t
+           (incf (arg-state-fp-registers state))
+           (my-make-wired-tn 'single-float 'single-reg register)))))
 
 #!+arm-softfp
 (define-alien-type-method (double-float :arg-tn) (type state)
@@ -101,14 +98,18 @@
 #!-arm-softfp
 (define-alien-type-method (double-float :arg-tn) (type state)
   (declare (ignore type))
-  (let ((register (arg-state-next-double-register state)))
-    (when (> register 7)
-      (error "Don't know how to handle alien double floats on stack."))
-    (prog1
-        (my-make-wired-tn 'double-float 'double-reg (* register 2))
-      (incf (arg-state-next-double-register state))
-      (when (evenp (arg-state-next-single-register state))
-        (incf (arg-state-next-single-register state) 2)))))
+  (let ((register (setf (arg-state-fp-registers state)
+                        (logandc2 (+ (arg-state-fp-registers state) 1) 1))))
+    (cond ((> register 15)
+           (let ((frame-size
+                   ;; align
+                   (setf (arg-state-stack-frame-size state)
+                         (logandc2 (+ (arg-state-stack-frame-size state) 1) 1))))
+             (setf (arg-state-stack-frame-size state) (+ frame-size 2))
+             (my-make-wired-tn 'double-float 'double-stack frame-size)))
+          (t
+           (incf (arg-state-fp-registers state) 2)
+           (my-make-wired-tn 'double-float 'double-reg register)))))
 
 (define-alien-type-method (integer :result-tn) (type state)
   (let ((num-results (result-state-num-results state)))
@@ -234,8 +235,8 @@
   (:results (result :scs (sap-reg any-reg)))
   (:generator 0
     (unless (zerop amount)
-      (let ((delta (logandc2 (+ amount (1- +number-stack-allocation-granularity+))
-                             (1- +number-stack-allocation-granularity+))))
+      (let ((delta (logandc2 (+ amount +number-stack-alignment-mask+)
+                             +number-stack-alignment-mask+)))
         (composite-immediate-instruction sub nsp-tn nsp-tn delta)
         (move result nsp-tn)))))
 
@@ -244,8 +245,8 @@
   (:policy :fast-safe)
   (:generator 0
     (unless (zerop amount)
-      (let ((delta (logandc2 (+ amount (1- +number-stack-allocation-granularity+))
-                             (1- +number-stack-allocation-granularity+))))
+      (let ((delta (logandc2 (+ amount +number-stack-alignment-mask+)
+                             +number-stack-alignment-mask+)))
         (composite-immediate-instruction add nsp-tn nsp-tn delta)))))
 ;;;
 
@@ -257,9 +258,8 @@
   (:arg-types double-float)
   (:result-types unsigned-num unsigned-num)
   (:policy :fast-safe)
-  (:generator 2
-    (inst fmrdl lo-bits double)
-    (inst fmrdh hi-bits double)))
+  (:generator 1
+    (inst fmrrd lo-bits hi-bits double)))
 
 #!+arm-softfp
 (define-vop (move-int-args-to-double)
@@ -269,9 +269,8 @@
   (:arg-types unsigned-num unsigned-num)
   (:result-types double-float)
   (:policy :fast-safe)
-  (:generator 2
-    (inst fmdlr double lo-bits)
-    (inst fmdhr double hi-bits)))
+  (:generator 1
+    (inst fmdrr double lo-bits hi-bits)))
 
 ;;; long-long support
 (deftransform %alien-funcall ((function type &rest args) * * :node node)
@@ -381,28 +380,31 @@
            (nsp-save-tn (make-tn 6))
            #!-arm-softfp
            (fp-registers 0)
-           (gprs (list r0-tn r1-tn r2-tn r3-tn)))
+           (gprs (list r0-tn r1-tn r2-tn r3-tn))
+           (frame-size
+             (loop for type in argument-types
+                   sum (* n-word-bytes
+                          (if (or (alien-double-float-type-p type)
+                                  (and (alien-integer-type-p type)
+                                       (eql (alien-type-bits type) 64)))
+                              2
+                              1)))))
+      (setf frame-size (logandc2 (+ frame-size +number-stack-alignment-mask+)
+                                 +number-stack-alignment-mask+))
       (assemble (segment)
-        (emit-word segment #xe92d4ff0) ;; stmfd sp!, {r4-r11, lr}
+        (emit-word segment #xe92d4ff8) ;; stmfd sp!, {r3-r11, lr}
         (move nsp-save-tn nsp-tn)
 
         ;; Make room on the stack for arguments.
-        (inst sub nsp-tn nsp-tn
-              (loop for type in argument-types
-                    sum (* n-word-bytes
-                           (if (or (alien-double-float-type-p type)
-                                   (and (alien-integer-type-p type)
-                                        (eql (alien-type-bits type) 64)))
-                               2
-                               1))))
+        (when (plusp frame-size)
+          (inst sub nsp-tn nsp-tn frame-size))
         ;; Copy arguments
         (dolist (type argument-types)
           (let ((target-tn (@ nsp-tn (* arg-count n-word-bytes)))
                 ;; A TN pointing to the stack location that contains
                 ;; the next argument passed on the stack.
-                ;; 8 is the amount of registers saved by stmfd above,
-                ;; + 1 for the new element.
-                (stack-arg-tn (@ nsp-save-tn (* (+ 9 stack-argument-count)
+                ;; 10 is the amount of registers saved by stmfd above.
+                (stack-arg-tn (@ nsp-save-tn (* (+ 10 stack-argument-count)
                                                 n-word-bytes))))
             (cond ((or (and (alien-integer-type-p type)
                             (not (eql (alien-type-bits type) 64)))
@@ -437,11 +439,11 @@
                         ;; two-word aligned
                         (setf stack-argument-count
                               (logandc2 (+ stack-argument-count 1) 1))
-                        (inst ldr temp-tn (@ nsp-save-tn (* (+ 9 stack-argument-count)
+                        (inst ldr temp-tn (@ nsp-save-tn (* (+ 10 stack-argument-count)
                                                             n-word-bytes)))
                         (inst str temp-tn (@ nsp-tn (* arg-count n-word-bytes)))
                         (incf arg-count)
-                        (inst ldr temp-tn (@ nsp-save-tn (* (+ 10 stack-argument-count)
+                        (inst ldr temp-tn (@ nsp-save-tn (* (+ 11 stack-argument-count)
                                                             n-word-bytes)))
                         (inst str temp-tn (@ nsp-tn (* arg-count n-word-bytes)))
                         (incf stack-argument-count 2)
@@ -449,18 +451,34 @@
                   #!-arm-softfp
                   ((alien-double-float-type-p type)
                    (setf fp-registers (logandc2 (+ fp-registers 1) 1))
-                   (when (> fp-registers 15)
-                     (error "Don't know how to handle alien double floats on stack."))
-                   (inst fstd (make-tn fp-registers 'double-reg) target-tn)
-                   (incf arg-count 2)
-                   (incf fp-registers 2))
+                   (cond
+                     ((> fp-registers 15)
+                      ;; align
+                      (setf stack-argument-count
+                            (logandc2 (+ stack-argument-count 1) 1))
+                      (inst ldr temp-tn (@ nsp-save-tn (* (+ 10 stack-argument-count)
+                                                          n-word-bytes)))
+                      (inst str temp-tn (@ nsp-tn (* arg-count n-word-bytes)))
+                      (incf arg-count)
+                      (inst ldr temp-tn (@ nsp-save-tn (* (+ 11 stack-argument-count)
+                                                          n-word-bytes)))
+                      (inst str temp-tn (@ nsp-tn (* arg-count n-word-bytes)))
+                      (incf stack-argument-count 2)
+                      (incf arg-count))
+                     (t
+                      (inst fstd (make-tn fp-registers 'double-reg) target-tn)
+                      (incf fp-registers 2)
+                      (incf arg-count 2))))
                   #!-arm-softfp
                   ((alien-single-float-type-p type)
-                   (when (> fp-registers 15)
-                     (error "Don't know how to handle alien single floats on stack."))
-                   (inst fsts (make-tn fp-registers 'single-reg) target-tn)
-                   (incf arg-count 1)
-                   (incf fp-registers 1))
+                   (cond ((> fp-registers 15)
+                          (incf stack-argument-count)
+                          (inst ldr temp-tn stack-arg-tn)
+                          (inst str temp-tn target-tn))
+                         (t
+                          (inst fsts (make-tn fp-registers 'single-reg) target-tn)
+                          (incf fp-registers 1)))
+                   (incf arg-count 1))
                   (t
                    (bug "Unknown alien floating point type: ~S" type)))))
         ;; arg0 to FUNCALL3 (function)
@@ -511,12 +529,20 @@
           (t
            (error "Unrecognized alien type: ~A" result-type)))
         (move nsp-tn nsp-save-tn)
-        (emit-word segment #xe8bd4ff0) ;; ldmfd sp!, {r4-r11, lr}
+        (emit-word segment #xe8bd4ff8) ;; ldmfd sp!, {r3-r11, lr}
         (inst bx lr-tn))
       (finalize-segment segment)
       ;; Now that the segment is done, convert it to a static
       ;; vector we can point foreign code to.
-      (let ((buffer (sb!assem::segment-buffer segment)))
-        (make-static-vector (length buffer)
-                            :element-type '(unsigned-byte 8)
-                            :initial-contents buffer)))))
+      (let* ((buffer (sb!assem::segment-buffer segment))
+             (vector (make-static-vector (length buffer)
+                                         :element-type '(unsigned-byte 8)
+                                         :initial-contents buffer))
+             (sap (vector-sap vector)))
+        (alien-funcall
+         (extern-alien "os_flush_icache"
+                       (function void
+                                 system-area-pointer
+                                 unsigned-long))
+         sap (length buffer))
+        vector))))
