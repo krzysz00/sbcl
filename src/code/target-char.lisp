@@ -432,10 +432,8 @@ strings and symbols of length 1."
           (cond
             (h-code
              (huffman-decode h-code *unicode-character-name-huffman-tree*))
-            ((< char-code #x10000)
-             (format nil "U~4,'0X" char-code))
             (t
-             (format nil "U~8,'0X" char-code)))))))
+             (format nil "U~X" char-code)))))))
 
 (defun name-char (name)
   #!+sb-doc
@@ -447,7 +445,10 @@ name is that string, if one exists. Otherwise, NIL is returned."
         (when char-code
           (code-char char-code)))
       #!+sb-unicode
-      (let ((encoding (huffman-encode (string-upcase name)
+      (let* ((%name (string-upcase name))
+             (encoding (huffman-encode (if (string= "U+" (subseq %name 0 2))
+                                           (remove #\+ %name :count 1)
+                                           %name)
                                        *unicode-character-name-huffman-tree*)))
         (when encoding
           (let* ((char-code
@@ -459,12 +460,17 @@ name is that string, if one exists. Otherwise, NIL is returned."
             (cond
               (char-code
                (code-char char-code))
-              ((and (or (= name-length 9)
-                        (= name-length 5))
+              ((and (> name-length 1)
                     (char-equal (char name-string 0) #\U)
-                    (loop for i from 1 below name-length
-                          always (digit-char-p (char name-string i) 16)))
-               (code-char (parse-integer name-string :start 1 :radix 16)))
+                    (loop for i from
+                         (if (char-equal (char name-string 1) #\+) 2 1)
+                       below name-length
+                       always (digit-char-p (char name-string i) 16)))
+               (code-char (parse-integer name-string
+                                         :start
+                                         (if (char-equal (char name-string 1) #\+)
+                                             2 1)
+                                         :radix 16)))
               (t
                nil)))))))
 
