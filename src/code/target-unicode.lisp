@@ -1037,7 +1037,7 @@ with variable-weight characters, as described in UTS #10"
          (k1 (sort-key s1)) (k2 (sort-key s2)))
     (if (equalp k1 k2)
         (flet ((to-codepoints (str)
-                 (map 'vector #'char-code str)))
+                 (map 'vector #'char-code (normalize-string str :nfd))))
           (vector< (to-codepoints s1) (to-codepoints s2)))
         (vector< k1 k2))))
 
