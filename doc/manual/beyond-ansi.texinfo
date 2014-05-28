@@ -681,6 +681,10 @@ codepoint.
 
 @include fun-sb-unicode-east-asian-width.texinfo
 
+@include fun-sb-unicode-script.texinfo
+
+@include fun-sb-unicode-line-break-class.texinfo
+
 @include fun-sb-unicode-uppercase-p.texinfo
 
 @include fun-sb-unicode-lowercase-p.texinfo

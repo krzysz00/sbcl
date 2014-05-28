@@ -295,22 +295,22 @@
 
 ;;; The character database is made of several arrays.
 ;;; **CHARACTER-MISC-DATABASE** is an array of bytes that encode character
-;;; attributes. Each entry in the misc database is +misc-width+ (currently 7)
+;;; attributes. Each entry in the misc database is +misc-width+ (currently 8)
 ;;; bytes wide. Within each entry, the bytes represent: general category, BIDI
 ;;; class, canonical combining class, digit value, decomposition info, other
-;;; flags, and script, respectively. Several of the entries have additional
-;;; information encoded in them at the bit level. The digit value field is
-;;; equal to 128 (has only its high bit set) if characters with that set of
-;;; attribute are not digits. Bit 6 is set if that entry encodes decimal
-;;; digits, that is, characters that are DIGIT-CHAR-P. The rest of the value is
-;;; the digit value of characters with that entry. Decomposition info contains
-;;; the length of the decomposition of characters with that entry, and also
-;;; sets its high bit if the decompositions are compatibility decompositions.
-;;; The other flags byte encodes boolean properties. Bit 7 is set if the
-;;; entry's characters are BOTH-CASE-P in the Common Lisp sense. Bit 6 is set
-;;; if the entry's characters hav a defined case transformation in Unicode. Bit
-;;; 5 is set if the characters have the property BIDI_Mirrored=Y. Bits 3-0
-;;; encode the entry's East Asian Width. Bit 4 is unused.
+;;; flags, script, and line break class, respectively. Several of the entries
+;;; have additional information encoded in them at the bit level. The digit
+;;; value field is equal to 128 (has only its high bit set) if characters with
+;;; that set of attribute are not digits. Bit 6 is set if that entry encodes
+;;; decimal digits, that is, characters that are DIGIT-CHAR-P. The rest of the
+;;; value is the digit value of characters with that entry. Decomposition info
+;;; contains the length of the decomposition of characters with that entry, and
+;;; also sets its high bit if the decompositions are compatibility
+;;; decompositions. The other flags byte encodes boolean properties. Bit 7 is
+;;; set if the entry's characters are BOTH-CASE-P in the Common Lisp sense. Bit
+;;; 6 is set if the entry's characters hav a defined case transformation in
+;;; Unicode. Bit 5 is set if the characters have the property BIDI_Mirrored=Y.
+;;; Bits 3-0 encode the entry's East Asian Width. Bit 4 is unused.
 ;;;
 ;;; To find which entry in **CHARACTER-MISC-DATABASE** encodes a character's
 ;;; attributes, first index **CHARACTER-HIGH-PAGES** (an array of 16-bit
@@ -358,7 +358,7 @@
 (defun clear-flag (bit integer)
   (logandc2 integer (ash 1 bit)))
 
-(defconstant +misc-width+ 7)
+(defconstant +misc-width+ 8)
 
 (declaim (ftype (sfunction (t) (unsigned-byte 16)) misc-index))
 (defun misc-index (char)

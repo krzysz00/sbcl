@@ -105,9 +105,9 @@
 (defparameter *misc-table* (make-array 2048 :fill-pointer 0)
 "Holds the entries in the Unicode database's miscellanious array, stored as lists.
 These lists have the form (gc-index bidi-index ccc digit decomposition-info
-flags-eaw script). Flags is a bit-bashed integer containing cl-both-case-p,
-has-case-p, and bidi-mirrored-p, and an east asian width. Length should be
-adjusted when the standard changes.")
+flags script line-break). Flags is a bit-bashed integer containing
+cl-both-case-p, has-case-p, and bidi-mirrored-p, and an east asian width.
+Length should be adjusted when the standard changes.")
 (defparameter *misc-hash* (make-hash-table :test #'equal)
 "Maps a misc list to its position in the misc table.")
 
@@ -131,21 +131,26 @@ adjusted when the standard changes.")
 (defparameter *scripts*
   (init-indices
    '("Unknown" "Common" "Latin" "Greek" "Cyrillic" "Armenian" "Hebrew" "Arabic"
-   "Syriac" "Thaana" "Devanagari" "Bengali" "Gurmukhi" "Gujarati" "Oriya"
-   "Tamil" "Telugu" "Kannada" "Malayalam" "Sinhala" "Thai" "Lao" "Tibetan"
-   "Myanmar" "Georgian" "Hangul" "Ethiopic" "Cherokee" "Canadian_Aboriginal"
-   "Ogham" "Runic" "Khmer" "Mongolian" "Hiragana" "Katakana" "Bopomofo" "Han"
-   "Yi" "Old_Italic" "Gothic" "Deseret" "Inherited" "Tagalog" "Hanunoo" "Buhid"
-   "Tagbanwa" "Limbu" "Tai_Le" "Linear_B" "Ugaritic" "Shavian" "Osmanya"
-   "Cypriot" "Braille" "Buginese" "Coptic" "New_Tai_Lue" "Glagolitic"
-   "Tifinagh" "Syloti_Nagri" "Old_Persian" "Kharoshthi" "Balinese" "Cuneiform"
-   "Phoenician" "Phags_Pa" "Nko" "Sundanese" "Lepcha" "Ol_Chiki" "Vai"
-   "Saurashtra" "Kayah_Li" "Rejang" "Lycian" "Carian" "Lydian" "Cham"
-   "Tai_Tham" "Tai_Viet" "Avestan" "Egyptian_Hieroglyphs" "Samaritan" "Lisu"
-   "Bamum" "Javanese" "Meetei_Mayek" "Imperial_Aramaic" "Old_South_Arabian"
-   "Inscriptional_Parthian" "Inscriptional_Pahlavi" "Old_Turkic" "Kaithi"
-   "Batak" "Brahmi" "Mandaic" "Chakma" "Meroitic_Cursive"
-   "Meroitic_Hieroglyphs" "Miao" "Sharada" "Sora_Sompeng" "Takri")))
+     "Syriac" "Thaana" "Devanagari" "Bengali" "Gurmukhi" "Gujarati" "Oriya"
+     "Tamil" "Telugu" "Kannada" "Malayalam" "Sinhala" "Thai" "Lao" "Tibetan"
+     "Myanmar" "Georgian" "Hangul" "Ethiopic" "Cherokee" "Canadian_Aboriginal"
+     "Ogham" "Runic" "Khmer" "Mongolian" "Hiragana" "Katakana" "Bopomofo" "Han"
+     "Yi" "Old_Italic" "Gothic" "Deseret" "Inherited" "Tagalog" "Hanunoo" "Buhid"
+     "Tagbanwa" "Limbu" "Tai_Le" "Linear_B" "Ugaritic" "Shavian" "Osmanya"
+     "Cypriot" "Braille" "Buginese" "Coptic" "New_Tai_Lue" "Glagolitic"
+     "Tifinagh" "Syloti_Nagri" "Old_Persian" "Kharoshthi" "Balinese" "Cuneiform"
+     "Phoenician" "Phags_Pa" "Nko" "Sundanese" "Lepcha" "Ol_Chiki" "Vai"
+     "Saurashtra" "Kayah_Li" "Rejang" "Lycian" "Carian" "Lydian" "Cham"
+     "Tai_Tham" "Tai_Viet" "Avestan" "Egyptian_Hieroglyphs" "Samaritan" "Lisu"
+     "Bamum" "Javanese" "Meetei_Mayek" "Imperial_Aramaic" "Old_South_Arabian"
+     "Inscriptional_Parthian" "Inscriptional_Pahlavi" "Old_Turkic" "Kaithi"
+     "Batak" "Brahmi" "Mandaic" "Chakma" "Meroitic_Cursive"
+     "Meroitic_Hieroglyphs" "Miao" "Sharada" "Sora_Sompeng" "Takri")))
+(defparameter *line-break-classes*
+  (init-indices
+   '("XX" "AI" "AL" "B2" "BA" "BB" "BK" "CB" "CJ" "CL" "CM" "CP" "CR" "EX" "GL"
+     "HL" "HY" "ID" "IN" "IS" "LF" "NL" "NS" "NU" "OP" "PO" "PR" "QU" "RI" "SA"
+     "SG" "SP" "SY" "WJ" "ZW")))
 
 (defparameter *east-asian-width-table*
   (with-open-file (s (make-pathname :name "EastAsianWidth" :type "txt"
@@ -177,13 +182,30 @@ adjusted when the standard changes.")
        finally (return hash)))
 "Table of scripts. Used in the creation of misc entries.")
 
+(defparameter *line-break-class-table*
+  (with-open-file (s (make-pathname :name "LineBreakProperty" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop with hash = (make-hash-table)
+       for line = (read-line s nil nil) while line
+       unless (or (not (position #\# line)) (= 0 (position #\# line)))
+       do (destructuring-bind (codepoints value)
+              (split-string (subseq line 0 (1- (position #\# line))) #\;)
+            (let ((range (parse-codepoint-range codepoints))
+                  ;; Hangul syllables temporarily go to "Unkwown"
+                  (index (gethash value *line-break-classes* 0)))
+              (loop for i from (car range) to (cadr range)
+                 do (setf (gethash i hash) index))))
+       finally (return hash)))
+"Table of line break classes. Used in the creation of misc entries.")
 
 (defvar *block-first* nil)
 
 
 ;;; Unicode data file parsing
-(defun hash-misc (gc-index bidi-index ccc digit decomposition-info flags script)
-  (let* ((list (list gc-index bidi-index ccc digit decomposition-info flags script))
+(defun hash-misc (gc-index bidi-index ccc digit decomposition-info flags
+                  script line-break)
+  (let* ((list (list gc-index bidi-index ccc digit decomposition-info flags
+                     script line-break))
          (index (gethash list *misc-hash*)))
     (or index
         (progn
@@ -192,27 +214,19 @@ adjusted when the standard changes.")
           (vector-push list *misc-table*)))))
 
 (defun complete-misc-table ()
-  (let* ((unallocated-misc
-          ;; unallocated characters have a GC index of 31 (not colliding
-          ;; with any other GC), aren't digits, aren't interestingly bidi,
-          ;; and don't decompose, combine, or have case. They have an East
-          ;; Asian Width (eaw) of "N" (0), and a script of 0 ("Unknown")
-          '(31 0 0 128 0 0 0))
-         (unallocated-index (apply #'hash-misc unallocated-misc))
-         (unallocated-ucd (make-ucd :misc unallocated-index :decomp 0)))
-    (loop for code-point from 0 to #x10FFFF do ; Flood-fil unallocated codepoints
-         (unless (second (multiple-value-list (gethash code-point *ucd-entries*)))
-           (if (and (gethash code-point *east-asian-width-table*)
-                      (/= 0 (gethash code-point *east-asian-width-table*)))
-               (let ((unallocated-unusual-width
-                      (list 31 0 0 128 0
-                            (gethash code-point *east-asian-width-table*)
-                            0)))
-                 (setf (gethash code-point *ucd-entries*)
-                       (make-ucd
-                        :misc (apply #'hash-misc unallocated-unusual-width)
-                        :decomp 0)))
-               (setf (gethash code-point *ucd-entries*) unallocated-ucd))))))
+  (loop for code-point from 0 to #x10FFFF do ; Flood-fil unallocated codepoints
+       (unless (second (multiple-value-list (gethash code-point *ucd-entries*)))
+         (let* ((unallocated-misc
+                 ;; unallocated characters have a GC index of 31 (not colliding with
+                 ;; any other GC), aren't digits, aren't interestingly bidi, and don't
+                 ;; decompose, combine, or have case. They have an East Asian Width
+                 ;; (eaw) of "N" (0), and a script and line breaking class of 0
+                 ;; ("Unknown"), unless some ofg those properties are otherwise assigned
+                 `(31 0 0 128 0 ,(gethash code-point *east-asian-width-table* 0)
+                   0 ,(gethash code-point *line-break-class-table* 0)))
+                (unallocated-index (apply #'hash-misc unallocated-misc))
+                (unallocated-ucd (make-ucd :misc unallocated-index :decomp 0)))
+           (setf (gethash code-point *ucd-entries*) unallocated-ucd)))))
 
 (defun fixup-compositions ()
   (flet ((fixup (k v)
@@ -314,7 +328,8 @@ adjusted when the standard changes.")
                (decomposition-info 0)
                (decomposition-index 0)
                (eaw-index (gethash code-point *east-asian-width-table*))
-               (script-index (gethash code-point *script-table* 0)))
+               (script-index (gethash code-point *script-table* 0))
+               (line-break-index (gethash code-point *line-break-class-table* 0)))
           (when (and (not cl-both-case-p)
                      (< gc-index 2))
             (format t "~A~%" name))
@@ -384,7 +399,8 @@ adjusted when the standard changes.")
                          (if bidi-mirrored-p (ash 1 5) 0)
                          eaw-index))
                  (misc-index (hash-misc gc-index bidi-index ccc digit-index
-                                        decomposition-info flags script-index))
+                                        decomposition-info flags script-index
+                                        line-break-index))
                  (result (make-ucd :misc misc-index
                                    :decomp decomposition-index)))
             (when (and (> (length name) 7)
@@ -412,7 +428,7 @@ adjusted when the standard changes.")
   (loop for code-point being the hash-keys in *case-mapping*
      using (hash-value (upper . lower))
      for misc-index = (ucd-misc (gethash code-point *ucd-entries*))
-     for (gc bidi ccc digit decomp flags script) = (aref *misc-table* misc-index)
+     for (gc bidi ccc digit decomp flags script lb) = (aref *misc-table* misc-index)
      when (logbitp 7 flags) do
        (when (or (not (atom upper)) (not (atom lower))
                  (and (= gc 0)
@@ -420,7 +436,7 @@ adjusted when the standard changes.")
                  (and (= gc 1)
                       (not (equal (cdr (gethash upper *case-mapping*)) code-point))))
          (let* ((new-flags (clear-flag 7 flags))
-                (new-misc (hash-misc gc bidi ccc digit decomp new-flags script)))
+                (new-misc (hash-misc gc bidi ccc digit decomp new-flags script lb)))
            (setf (ucd-misc (gethash code-point *ucd-entries*)) new-misc)))))
 
 (defun fixup-casefolding ()
@@ -578,7 +594,8 @@ adjusted when the standard changes.")
                           :element-type '(unsigned-byte 8)
                           :if-exists :supersede
                           :if-does-not-exist :create)
-    (loop for (gc-index bidi-index ccc digit decomposition-info flags script)
+    (loop for (gc-index bidi-index ccc digit decomposition-info flags
+                        script line-break)
        across *misc-table*
        ;; three bits spare here
        do (write-byte gc-index stream)
@@ -590,7 +607,8 @@ adjusted when the standard changes.")
          (write-byte digit stream)
          (write-byte decomposition-info stream)
          (write-byte flags stream) ; includes EAW in bits 0-3, bit 4 is free
-         (write-byte script stream))))
+         (write-byte script stream)
+         (write-byte line-break stream))))
 
 (defun output-ucd-data ()
   (with-open-file (high-pages (make-pathname :name "ucdhigh"

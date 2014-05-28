@@ -124,6 +124,12 @@
      :Meroitic-Cursive :Meroitic-Hieroglyphs :Miao :Sharada :Sora-Sompeng
      :Takri)))
 
+(defparameter *line-break-classes*
+  (reverse-ucd-indices
+   '(:XX :AI :AL :B2 :BA :BB :BK :CB :CJ :CL :CM :CP :CR :EX :GL
+     :HL :HY :ID :IN :IS :LF :NL :NS :NU :OP :PO :PR :QU :RI :SA
+     :SG :SP :SY :WJ :ZW)))
+
 (defun general-category (character)
   #!+sb-doc
   "Returns the general category of CHARACTER as it appears in UnicodeData.txt"
@@ -216,6 +222,37 @@ If the character is not a Hangul syllable or Jamo, returns NIL"
         (and (<= #xd7c8 cp) (<= cp #xd7fb))) :T)
       ((and (<= #xac00 cp) (<= cp #xd7a3))
        (if (= 0 (rem (- cp #xac00) 28)) :LV :LVT)))))
+
+(defun line-break-class (character &key resolve)
+  #!+sb-doc
+  "Returns the line breaking class of CHARACTER, as specified in UAX #14.
+If :RESOLVE is NIL, returns the character class found in the property file.
+If :RESOLVE is non-NIL, centain line-breaking classes will be mapped to othec
+classes as specified in the applicable standards. Addinionally, if :RESOLVE
+is :EAST-ASIAN, Ambigious (class :AI) characters will be mapped to the
+Ideographic (:ID) class instead of Alphabetic (:AL)"
+  (let ((raw-class
+         (gethash (aref **character-misc-database** (+ 7 (misc-index character)))
+           *line-break-classes*))
+        (syllable-type (hangul-syllable-type character)))
+    (when syllable-type
+      (setf raw-class
+            (cdr (assoc syllable-type
+                        '((:l . :JL) (:v . :JV) (:t . :JT)
+                          (:lv . :H2) (:lvt . :H3))))))
+    (when resolve
+      (setf raw-class
+            (case raw-class
+              (:ai (if (eql resolve :east-asion) :ID :AL))
+              (:xx :al)
+              (:sa (if (member (general-category character) '(:Mn :Mc))
+                       :CM :AL))
+              (:cj :ns)
+              (:sg (error "The character ~S is a surrogate, which should not
+appear in an SBCL string. The line-breaking behavior of surrogates is undefined."
+                          character))
+              (t raw-class))))
+    raw-class))
 
 (defun uppercase-p (character)
   #!+sb-doc
@@ -676,12 +713,6 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
          #(#x3031 #x3035 #x309B #x309C
            #x30A0 #x30A0 #x30FC #x30FC
            #xFF70 #xFF70))
-        ;; TODO: Slightly over-broad according to UAX #14, but can't fix
-        ;; until we have the line-breaking categories implemented
-        (complex-context-blocks
-         #(#x0E00 #x0E7F #x0E80 #x0EFF #x1000 #x109F #x1780 #x17FF
-           #x1950 #x197F #x1980 #x19DF #x1A20 #x1AAF #xAA60 #xAA7F
-           #xAA80 #xAADF))
         (midnumlet #(#x002E #x2018 #x2019 #x2024 #xFE52 #xFF07 #xFF0E))
         (midletter
          #(#x003A #x00B7 #x002D7 #x0387 #x05F4 #x2027 #xFE13 #xFE55 #xFF1A))
@@ -705,7 +736,7 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
       ((and (eql (script char) :Hebrew) (eql gc :lo)) :hebrew-letter)
       ((and (or (alphabetic-p char) (= cp #x05F3))
             (not (or (ideographic-p char)
-                     (ordered-ranges-member cp complex-context-blocks)
+                     (eql (line-break-class char) :sa)
                      (eql (script char) :hiragana)))) :aletter)
       ((ord-member cp midnumlet) :midnumlet)
       ((ord-member cp midletter) :midletter)
@@ -785,17 +816,7 @@ word breaking rules specified in UAX #29. Returns a list of strings"
         (scontinues
          #(#x002C #x002D #x003A #x055D #x060C #x060D #x07F8 #x1802 #x1808
            #x2013 #x2014 #x3001 #xFE10 #xFE11 #xFE13 #xFE31 #xFE32 #xFE50
-           #xFE51 #xFE55 #xFE58 #xFE63 #xFF0C #xFF0D #xFF1A #xFF64))
-        (additional-quotes
-         #(#x0028 #x005B #x007B #x0F3A #x0F3C #x169B #x201A #x201E #x2045
-           #x207D #x208D #x2308 #x230A #x2329 #x275B #x275C #x275D #x275E
-           #x2768 #x276A #x276C #x276E #x2770 #x2772 #x2774 #x27C5 #x27E6
-           #x27E8 #x27EA #x27EC #x27EE #x2983 #x2985 #x2987 #x2989 #x298B
-           #x298D #x298F #x2991 #x2993 #x2995 #x2997 #x29D8 #x29DA #x29FC
-           #x2E22 #x2E24 #x2E26 #x2E28 #x3008 #x300A #x300C #x300E #x3010
-           #x3014 #x3016 #x3018 #x301A #x301D #xFD3E #xFE17 #xFE35 #xFE37
-           #xFE39 #xFE3B #xFE3D #xFE3F #xFE41 #xFE43 #xFE47 #xFE59 #xFE5B
-           #xFE5D #xFF08 #xFF3B #xFF5B #xFF5F #xFF62)))
+           #xFE51 #xFE55 #xFE58 #xFE63 #xFF0C #xFF0D #xFF1A #xFF64)))
     (cond
       ((not char) nil)
       ((= cp 10) :LF)
@@ -813,8 +834,8 @@ word breaking rules specified in UAX #29. Returns a list of strings"
       ((ord-member cp aterms) :aterm)
       ((ord-member cp scontinues) :scontinue)
       ((proplist-p char :sterm) :sterm)
-      ((and (or (member gc '(:Po :Pe :Pf :Pi))
-                (ord-member cp additional-quotes))
+      ((and (or (member gc '(:Po :Ps :Pe :Pf :Pi))
+                (eql (line-break-class char) :qu))
             (not (eql cp #x05F3))) :close)
       (t nil))))
 

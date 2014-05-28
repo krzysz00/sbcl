@@ -178,3 +178,15 @@ Wanted ~S, got ~S."
 
 (test-sentence-break-type)
 
+(defun test-line-break-type ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/LineBreakProperty.txt"
+                     :external-format :ascii)
+    (with-test (:name (:line-break-type)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line #'line-break-class line)))))
+
+(test-line-break-type)
