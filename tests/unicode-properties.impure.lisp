@@ -123,6 +123,19 @@ Wanted ~S, got ~S."
 
 (test-east-asian-width)
 
+(defun test-script ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/Scripts.txt"
+                     :external-format :ascii)
+    (with-test (:name (:script)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line #'script (substitute #\- #\_ line))))))
+
+(test-script)
+
 (defun test-grapheme-break-type ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/GraphemeBreakProperty.txt"

@@ -106,6 +106,24 @@
 (defparameter *east-asian-widths*
   (reverse-ucd-indices '(:N :A :H :W :F :Na)))
 
+(defparameter *scripts*
+  (reverse-ucd-indices
+   '(:Unknown :Common :Latin :Greek :Cyrillic :Armenian :Hebrew :Arabic :Syriac
+     :Thaana :Devanagari :Bengali :Gurmukhi :Gujarati :Oriya :Tamil :Telugu
+     :Kannada :Malayalam :Sinhala :Thai :Lao :Tibetan :Myanmar :Georgian :Hangul
+     :Ethiopic :Cherokee :Canadian-Aboriginal :Ogham :Runic :Khmer :Mongolian
+     :Hiragana :Katakana :Bopomofo :Han :Yi :Old-Italic :Gothic :Deseret
+     :Inherited :Tagalog :Hanunoo :Buhid :Tagbanwa :Limbu :Tai-Le :Linear-B
+     :Ugaritic :Shavian :Osmanya :Cypriot :Braille :Buginese :Coptic :New-Tai-Lue
+     :Glagolitic :Tifinagh :Syloti-Nagri :Old-Persian :Kharoshthi :Balinese
+     :Cuneiform :Phoenician :Phags-Pa :Nko :Sundanese :Lepcha :Ol-Chiki :Vai
+     :Saurashtra :Kayah-Li :Rejang :Lycian :Carian :Lydian :Cham :Tai-Tham
+     :Tai-Viet :Avestan :Egyptian-Hieroglyphs :Samaritan :Lisu :Bamum :Javanese
+     :Meetei-Mayek :Imperial-Aramaic :Old-South-Arabian :Inscriptional-Parthian
+     :Inscriptional-Pahlavi :Old-Turkic :Kaithi :Batak :Brahmi :Mandaic :Chakma
+     :Meroitic-Cursive :Meroitic-Hieroglyphs :Miao :Sharada :Sora-Sompeng
+     :Takri)))
+
 (defun general-category (character)
   #!+sb-doc
   "Returns the general category of CHARACTER as it appears in UnicodeData.txt"
@@ -167,9 +185,18 @@ Otherwise, returns NIL."
   #!+sb-doc
   "Returns the East Asian Width property of CHARACTER as
 one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
-:W (Wide), :F (Fullwidth), or :Na (Not applicable)"
-  (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
+:W (Wide), :F (Fullwidth), or :NA (Not applicable)"
+  (gethash (ldb (byte 3 0)
+                (aref **character-misc-database**
+                      (+ 5 (misc-index character))))
            *east-asian-widths*))
+
+(defun script (character)
+  #!+sb-doc
+  "Returns the Script property of CHARACTER as a keyword.
+If a character does not have a known script, returns :UNKNOWN"
+  (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
+           *scripts*))
 
 (defun hangul-syllable-type (character)
   #!+sb-doc
@@ -645,23 +672,16 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
         (newlines #(#xB #xC #x0085 #x0085 #x2028 #x2029))
-        (hebrew-letters
-         #(#x05D0 #x05EA #x05F0 #x05F2 #xFB1D #xFB1D #xFB1F #xFB28
-           #xFB2A #xFB36 #xFB38 #xFB3C #xFB3E #xFB3E #xFB40 #xFB41
-           #xFB43 #xFB44 #xFB46 #xFB4F))
-        ;; Ranges from Scripts.txt adjusted to include extra values from UAX #29
-        (katakana
-         #(#x3031 #x3035 #x309B #x309C #x30A0 #x30FA #x30FC #x30FE
-           #x30FF #x30FF #x31F0 #x31FF #x32D0 #x32FE #x3300 #x3357
-           #xFF66 #xFF9D #x1B000 #x1B000))
+        (also-katakana
+         #(#x3031 #x3035 #x309B #x309C
+           #x30A0 #x30A0 #x30FC #x30FC
+           #xFF70 #xFF70))
         ;; TODO: Slightly over-broad according to UAX #14, but can't fix
         ;; until we have the line-breaking categories implemented
         (complex-context-blocks
          #(#x0E00 #x0E7F #x0E80 #x0EFF #x1000 #x109F #x1780 #x17FF
            #x1950 #x197F #x1980 #x19DF #x1A20 #x1AAF #xAA60 #xAA7F
            #xAA80 #xAADF))
-        (hiragana
-         #(#x3041 #x3096 #x309D #x309F #x1B001 #x1B001 #x1F200 #x1F200))
         (midnumlet #(#x002E #x2018 #x2019 #x2024 #xFE52 #xFF07 #xFF0E))
         (midletter
          #(#x003A #x00B7 #x002D7 #x0387 #x05F4 #x2027 #xFE13 #xFE55 #xFF1A))
@@ -680,12 +700,13 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
            (eql gc :mc)) :extend)
       ((<= #x1F1E6 cp #x1F1FF) :regional-indicator)
       ((and (eql gc :Cf) (not (<= #x200B cp #x200D))) :format)
-      ((ordered-ranges-member cp katakana) :katakana)
-      ((ordered-ranges-member cp hebrew-letters) :hebrew-letter)
+      ((or (eql (script char) :katakana)
+           (ordered-ranges-member cp also-katakana)) :katakana)
+      ((and (eql (script char) :Hebrew) (eql gc :lo)) :hebrew-letter)
       ((and (or (alphabetic-p char) (= cp #x05F3))
             (not (or (ideographic-p char)
                      (ordered-ranges-member cp complex-context-blocks)
-                     (ordered-ranges-member cp hiragana)))) :aletter)
+                     (eql (script char) :hiragana)))) :aletter)
       ((ord-member cp midnumlet) :midnumlet)
       ((ord-member cp midletter) :midletter)
       ((ord-member cp midnum) :midnum)
