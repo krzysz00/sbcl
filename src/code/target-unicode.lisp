@@ -636,9 +636,9 @@ The result is not guaranteed to have the same length as the input."
    ;; Greek lowecrase final sigma.
    ;; TODO: Slightly underbroad (doesn't deal with Case_Ignorable + Space correctly)
    #'(lambda (a b)
-       (when (and (char= a #\GREEK_CAPITAL_LETTER_SIGMA)
+       (when (and (char= a (code-char #x03A3))
                   (or (not b) (not (or (case-ignorable-p b) (cased-p b)))))
-         (list #\GREEK_SMALL_LETTER_FINAL_SIGMA)))))
+         (list (code-char #x03C2))))))
 
 (defun titlecase (string)
   #!+sb-doc
