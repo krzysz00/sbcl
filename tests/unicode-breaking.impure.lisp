@@ -87,3 +87,40 @@
             do (test-line #'sentences (remove #\Tab line))))))
 
 (test-sentences)
+
+(defun process-line-break-line (line)
+  (let ((elements (split-string line #\Space)))
+    (mapcar #'(lambda (e)
+                (cond
+                  ((eql (char e 0) +mul+) :cant)
+                  ((eql (char e 0) +div+) :can)
+                  (t (code-char (parse-integer e :radix 16)))))
+            elements)))
+
+(defun string-from-line-break-line (string)
+  (coerce
+   (mapcar
+    #'(lambda (s) (code-char (parse-integer s :radix 16)))
+    (remove
+     ""
+     (split-string (remove +mul+ (remove +div+ string)) #\Space)
+     :test #'string=)) 'string))
+
+(defun test-line-breaking ()
+  (declare (optimize (debug 2)))
+  (with-test (:name (:line-breaking)
+                    :skipped-on '(not :sb-unicode))
+    (with-open-file (s "data/LineBreakTest.txt" :external-format :utf8)
+      (loop for line = (read-line s nil nil)
+         while line
+         for string = (subseq line 0 (max 0 (1- (or (position #\# line) 1))))
+         unless (string= string "")
+         do
+           (assert (equal
+                    (process-line-break-line string)
+                    (substitute
+                     :can :must
+                     (sb-unicode::line-break-annotate
+                      (string-from-line-break-line string)))))))))
+
+(test-line-breaking)

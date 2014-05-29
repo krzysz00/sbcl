@@ -231,6 +231,8 @@ If :RESOLVE is non-NIL, centain line-breaking classes will be mapped to othec
 classes as specified in the applicable standards. Addinionally, if :RESOLVE
 is :EAST-ASIAN, Ambigious (class :AI) characters will be mapped to the
 Ideographic (:ID) class instead of Alphabetic (:AL)"
+  (when (and resolve (listp character)) (setf character (car character)))
+  (when (and resolve (not character)) (return-from line-break-class :nil))
   (let ((raw-class
          (gethash (aref **character-misc-database** (+ 7 (misc-index character)))
            *line-break-classes*))
@@ -244,7 +246,9 @@ Ideographic (:ID) class instead of Alphabetic (:AL)"
       (setf raw-class
             (case raw-class
               (:ai (if (eql resolve :east-asion) :ID :AL))
-              (:xx :al)
+              ; If we see :CM when resolving, we have a CM that isn't subject
+              ; to LB9, so we do LB10
+              ((:xx :cm) :al)
               (:sa (if (member (general-category character) '(:Mn :Mc))
                        :CM :AL))
               (:cj :ns)
@@ -941,6 +945,151 @@ sentence breaking rules specified in UAX #29"
                    (progn (nobrk) (setf state :brk-next))
                    (brk))))
           (t (nobrk))))))))
+
+(defun line-prebreak (string)
+  (let ((chars (coerce string 'list))
+        cluster clusters last-seen)
+    (loop for char in chars
+       for type = (line-break-class char)
+       do
+         (when
+             (and cluster
+                  (or
+                   (not (eql type :cm))
+                   (and (eql type :cm)
+                        (member last-seen '(nil :BK :CR :LF :NL :SP :ZW)))))
+           (if (cdr cluster)
+               (push (nreverse cluster) clusters)
+               (push (car cluster) clusters))
+           (setf cluster nil))
+         (unless (eql type :cm) (setf last-seen type))
+         (push char cluster))
+    (if (cdr cluster)
+        (push (nreverse cluster) clusters)
+        (push (car cluster) clusters))
+    (nreverse clusters)))
+
+(defun line-break-annotate (string)
+  (let ((chars (line-prebreak string))
+        first second t1 t2 tail (ret (list :cant))
+        state after-spaces)
+    (macrolet ((cmpush (thing)
+                 (let ((gthing (gensym)))
+                   `(let ((,gthing ,thing))
+                      (if (listp ,gthing)
+                          (loop for (c next) on ,gthing do
+                               (push c ret)
+                               (when next (push :cant ret)))
+                          (push ,thing ret)))))
+               (between (a b action)
+                 (let ((atest (if (eql a :any) t
+                                  (if (listp a)
+                                      `(member t1 ,a)
+                                      `(eql t1 ,a))))
+                       (btest (if (eql b :any) t
+                                  (if (listp b)
+                                      `(member t2 ,b)
+                                      `(eql t2 ,b)))))
+                 `(when (and ,atest ,btest)
+                    (cmpush ,action)
+                    (cmpush second)
+                    (go tail))))
+               (after-spaces (a b action)
+                 (let ((atest (if (eql a :any) t
+                                  (if (listp a)
+                                      `(member t1 ,a)
+                                      `(eql t1 ,a))))
+                       (btest (if (eql b :any) t
+                                  (if (listp b)
+                                      `(member type ,b)
+                                      `(eql type ,b)))))
+                   `(when
+                        (and ,atest
+                             (loop for c in tail
+                                for type = (line-break-class c :resolve t)
+                                do
+                                  (when (not (eql type :sp))
+                                    (return ,btest))))
+                      (if (eql t2 :sp)
+                         (progn (cmpush :cant)
+                                (cmpush second)
+                                (setf state :eat-spaces)
+                                (setf after-spaces ,action)
+                                (go tail))
+                         (progn (cmpush ,action)
+                                (cmpush second)
+                                (go tail)))))))
+
+      (cmpush (car chars))
+      (setf first (car chars))
+      (setf tail (cdr chars))
+      (setf second (car tail))
+      (tagbody
+         top
+         (when (not first) (go end))
+         (setf t1 (line-break-class first :resolve t))
+         (setf t2 (line-break-class second :resolve t))
+         (between :any :nil :must)
+         (when (and (eql state :eat-spaces) (eql t2 :sp))
+            (cmpush :cant) (cmpush second) (go tail))
+         (between :bk :any :must)
+         (between :cr :lf :cant)
+         (between '(:cr :lf :nl) :any :must)
+         (between :any '(:zw :bk :cr :lf :nl) :cant)
+         (when after-spaces (cmpush after-spaces) (cmpush second)
+               (setf state nil after-spaces nil) (go tail))
+         (after-spaces :zw :any :can)
+         (between :any :wj :cant)
+         (between :wj :any :cant)
+         (between :gl :any :cant)
+         (between '(:ZW :WJ :SY :SG :SA :RI :QU :PR :PO :OP :NU :NS :NL
+                    :LF :IS :IN :ID :HL :GL :EX :CR :CP :CM :CL :CJ :CB
+                    :BK :BB :B2 :AL :AI :JL :JV :JT :H2 :H3 :XX)
+                  :gl :cant)
+         (between :any '(:cl :cp :ex :is :sy) :cant)
+         (after-spaces :op :any :cant)
+         (after-spaces :qu :op :cant)
+         (after-spaces '(:cl :cp) :ns :cant)
+         (after-spaces :b2 :b2 :cant)
+         (between :any :sp :cant) ;; Goes here to deal with after-spaces
+         (between :sp :any :can)
+         (between :any :qu :cant)
+         (between :qu :any :cant)
+         (between :any :cb :can)
+         (between :cb :any :can)
+         (between :any '(:ba :hy :ns) :cant)
+         (between :bb :any :cant)
+         (when (and (eql t1 :hl) (eql t2 :hy))
+           (cmpush :cant) (cmpush second)
+           (setf after-spaces :can) (go tail))
+         (between '(:al :hl :id :in :nu) :in :cant)
+         (between :id :po :cant)
+         (between '(:al :hl) :nu :cant)
+         (between '(:nu :po) '(:al :hl) :cant)
+         (between :pr '(:id :al :hl) :cant)
+         (between '(:cl :cp :nu) '(:po :pr) :cant)
+         (between :nu '(:po :pr :nu) :cant)
+         (between '(:po :pr) :op :cant)
+         (between '(:po :pr :hy :is :sy) :nu :cant)
+         (between :jl '(:jl :jv :h2 :h3) :cant)
+         (between '(:jv :h2) '(:jv :jt) :cant)
+         (between '(:jt :h3) :jt :cant)
+         (between '(:jl :jv :jt :h2 :h3) '(:in :po) :cant)
+         (between :pr '(:jl :jv :jt :h2 :h3) :cant)
+         (between '(:al :hl :is) '(:al :hl) :cant)
+         (between '(:al :hl :nu) :op :cant)
+         (between :cp '(:al :hl :nu) :cant)
+         (between :ri :ri :cant)
+         (between :any :any :can)
+         tail
+         (setf first second)
+         (setf tail (cdr tail))
+         (setf second (car tail))
+         (go top)
+         end)
+      ;; LB3 satisfied by (:any :nil) -> :must
+      (setf ret (nreverse ret))
+      ret)))
 
 
 ;;; Collation
