@@ -691,6 +691,8 @@ codepoint.
 
 @include fun-sb-unicode-cased-p.texinfo
 
+@include fun-sb-unicode-case-ignorable-p.texinfo
+
 @include fun-sb-unicode-alphabetic-p.texinfo
 
 @include fun-sb-unicode-ideographic-p.texinfo

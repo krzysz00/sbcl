@@ -274,6 +274,15 @@ appear in an SBCL string. The line-breaking behavior of surrogates is undefined.
   (or (uppercase-p character) (lowercase-p character)
       (eql (general-category character) :Lt)))
 
+(defun case-ignorable-p (character)
+  #!+sb-doc
+  "Returns T if CHARACTER is Case Ignorable as defined in Unicode 6.3, Chapter
+3"
+  (or (member (general-category character)
+              '(:Mn :Me :Cf :Lm :Sk))
+      (member (word-break-type character)
+              '(:midletter :midnumlet))))
+
 (defun alphabetic-p (character)
   #!+sb-doc
   "Returns T if CHARACTER is Alphabetic according to the Unicode standard
@@ -597,10 +606,14 @@ and NIL otherwise"
             (mapcar #'code-char (cdr value)))
         (char-lowercase char))))
 
-(defun string-somethingcase (fn string)
+(defun string-somethingcase (fn string special-fn)
   (let ((result))
-    (loop for char across string
-       for cased = (funcall fn char)
+    (loop for index from 0 below (length string)
+       for char = (char string index)
+       for nextchar = (if (< (1+ index) (length string))
+                          (char string (1+ index)) nil)
+       for cased = (or (funcall special-fn char nextchar)
+                       (funcall fn char))
        do (loop for c in cased do (push c result)))
     (setf result (nreverse result))
     (coerce result 'string)))
@@ -612,13 +625,20 @@ and NIL otherwise"
   #!+sb-doc
   "Returns the full uppercase of STRING according to the Unicode standard.
 The result is not guaranteed to have the same length as the input."
-  (string-somethingcase #'char-uppercase string))
+  (string-somethingcase #'char-uppercase string (constantly nil)))
 
 (defun lowercase (string)
   #!+sb-doc
   "Returns the full lowercase of STRING according to the Unicode standard.
 The result is not guaranteed to have the same length as the input."
-  (string-somethingcase #'char-lowercase string))
+  (string-somethingcase
+   #'char-lowercase string
+   ;; Greek lowecrase final sigma.
+   ;; TODO: Slightly underbroad (doesn't deal with Case_Ignorable + Space correctly)
+   #'(lambda (a b)
+       (when (and (char= a #\GREEK_CAPITAL_LETTER_SIGMA)
+                  (or (not b) (not (or (case-ignorable-p b) (cased-p b)))))
+         (list #\GREEK_SMALL_LETTER_FINAL_SIGMA)))))
 
 (defun titlecase (string)
   #!+sb-doc
@@ -639,7 +659,7 @@ be longer than the input"
 Casefolding remove case information in a way that allaws the results to be used
 for case-insensitive comparisons.
 The result is not guaranteed to have the same length as the input."
-  (string-somethingcase #'char-foldcase string))
+  (string-somethingcase #'char-foldcase string (constantly nil)))
 
 
 ;;; Unicode break algorithms
