@@ -745,6 +745,8 @@ Unicode string into useful parts.
 
 @include fun-sb-unicode-sentences.texinfo
 
+@include fun-sb-unicode-lines.texinfo
+
 @node  Customization Hooks for Users
 @comment  node-name,  next,  previous,  up
 @section Customization Hooks for Users

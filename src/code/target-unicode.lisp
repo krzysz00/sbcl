@@ -1091,6 +1091,61 @@ sentence breaking rules specified in UAX #29"
       (setf ret (nreverse ret))
       ret)))
 
+(defun break-list-at (list n)
+  (let ((tail list) (pre-tail nil))
+    (loop repeat n do (setf pre-tail tail) (setf tail (cdr tail)))
+    (setf (cdr pre-tail) nil)
+    (values list tail)))
+
+(defun lines (string &key (margin *print-right-margin*))
+  #!+sb-doc
+  "Breaks STRING into lines that are no wider than :MARGIN according to the
+line breaking rules outlined in UAX #14. Combining marks will awsays be kept
+together with their base characters, and spaces (but not other types of
+whitespace) will be removed from the end of lines. If :MARGIN is unspecified,
+it defaults to 80 characters"
+  (when (string= string "") (return-from lines (list "")))
+  (unless margin (setf margin 80))
+  (do* ((chars (line-break-annotate string))
+        line lines (filled 0) last-break-distance
+        (break-type (car chars) (car tail))
+        (char (cadr chars) (cadr tail))
+        (tail (cddr chars) (cddr tail)))
+       ((not break-type)
+        (mapcar #'(lambda (s) (coerce s 'string)) (nreverse lines)))
+    (ecase break-type
+      (:cant
+       (push char line)
+       (unless (eql (line-break-class char) :CM)
+         (incf filled))
+       (when last-break-distance (incf last-break-distance)))
+      (:can
+       (push char line)
+       (setf last-break-distance 1)
+       (incf filled))
+      (:must
+       (push char line)
+       (setf last-break-distance 1)
+       (incf filled)
+       (go break)))
+    (if (> filled margin)
+        (go break)
+        (go next))
+   break
+    (when (not last-break-distance)
+      ;; If we don't have any line breaks, remove the last thing we added that
+      ;; takes up space, and all its combining marks
+      (setf last-break-distance
+            (1+ (loop for c in line while (eql (line-break-class c) :cm) summing 1))))
+    (multiple-value-bind (next-line this-line) (break-list-at line last-break-distance)
+      (loop while (eql (line-break-class (car this-line)) :sp)
+         do (setf this-line (cdr this-line)))
+      (push (nreverse this-line) lines)
+      (setf line next-line)
+      (setf filled (length line))
+      (setf last-break-distance nil))
+   next))
+
 
 ;;; Collation
 (defparameter **maximum-variable-primary-element**
