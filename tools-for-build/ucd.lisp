@@ -520,7 +520,7 @@ Length should be adjusted when the standard changes.")
     (parse-property s :unified-ideograph)
     (parse-property s) ;; Other_Default_Ignorable_Code_Point
     (parse-property s) ;; Deprecated
-    (parse-property s) ;; Soft_Dotted
+    (parse-property s :soft-dotted)
     (parse-property s) ;; Logical_Order_Exception
     (parse-property s) ;; Other_ID_Start
     (parse-property s) ;; Other_ID_Continue

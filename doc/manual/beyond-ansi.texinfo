@@ -699,6 +699,8 @@ codepoint.
 
 @include fun-sb-unicode-whitespace-p.texinfo
 
+@include fun-sb-unicode-soft-dotted-p.texinfo
+
 @subsection String operations
 
 SBCL can normalize strings using:
@@ -729,6 +731,8 @@ collating/sorting strings according to the Unicode Collation Algorithm.
 @include fun-sb-unicode-unicode-lt.texinfo
 
 @include fun-sb-unicode-unicode=.texinfo
+
+@include fun-sb-unicode-unicode-equal.texinfo
 
 @include fun-sb-unicode-unicode-lt=.texinfo
 

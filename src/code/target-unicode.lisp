@@ -302,6 +302,12 @@ which loosely corresponds to the set of \"Chinese characters\""
 and NIL otherwise"
   (proplist-p character :whitespace))
 
+(defun soft-dotted-p (character)
+  #!+sb-doc
+  "Returns T if CHARACTER has a soft dot (such as the dots on i and j) which
+disappears when accents are placed on top of it. and NIL otherwise"
+  (proplist-p character :soft-dotted))
+
 
 ;;; Implements UAX#15: Normalization Forms
 (defun char-decomposition-info (char)
@@ -607,50 +613,134 @@ and NIL otherwise"
         (char-lowercase char))))
 
 (defun string-somethingcase (fn string special-fn)
-  (let ((result))
-    (loop for index from 0 below (length string)
+  (let (result (len (length string)))
+    (loop for index from 0 below len
        for char = (char string index)
-       for nextchar = (if (< (1+ index) (length string))
-                          (char string (1+ index)) nil)
-       for cased = (or (funcall special-fn char nextchar)
+       for cased = (or (funcall special-fn char index len)
                        (funcall fn char))
-       do (loop for c in cased do (push c result)))
+       do (loop for c in (remove :none cased) do (push c result)))
     (setf result (nreverse result))
     (coerce result 'string)))
 
-#!-sb-fluid
-(declaim (inline uppercase lowercase casefold))
-
-(defun uppercase (string)
+(defun uppercase (string &key locale)
   #!+sb-doc
   "Returns the full uppercase of STRING according to the Unicode standard.
-The result is not guaranteed to have the same length as the input."
-  (string-somethingcase #'char-uppercase string (constantly nil)))
+The result is not guaranteed to have the same length as the input. If :LOCALE
+is NIL, no language-specific case transformations are applied. If :LOCALE is a
+keyword representing a two-letter ISO country code, the case transforms of that
+locale are used. If :LOCALE is T, the user's current locale is used (not
+currently supported)."
+  (string-somethingcase
+   #'char-uppercase string
+   #'(lambda (char index len)
+       (declare (ignore len))
+       (cond
+         ((and (eql locale :lt) (char= char (code-char #x0307))
+                  (loop for i from (1- index) downto 0
+                     for c = (char string i)
+                     do (case (combining-class c)
+                          (0 (return (soft-dotted-p c)))
+                          (230 (return nil))
+                          (t t))
+                     finally (return nil)))
+          '(:none))
+         ((and (or (eql locale :tr) (eql locale :az))
+               (char= char #\i))
+          (list (code-char #x0130)))
+         (t nil)))))
 
-(defun lowercase (string)
+(defun lowercase (string &key locale)
   #!+sb-doc
   "Returns the full lowercase of STRING according to the Unicode standard.
-The result is not guaranteed to have the same length as the input."
+The result is not guaranteed to have the same length as the input.
+:LOCALE has the same semantics as the :LOCALE argument to UPPERCASE."
   (string-somethingcase
    #'char-lowercase string
-   ;; Greek lowecrase final sigma.
-   ;; TODO: Slightly underbroad (doesn't deal with Case_Ignorable + Space correctly)
-   #'(lambda (a b)
-       (when (and (char= a (code-char #x03A3))
-                  (or (not b) (not (or (case-ignorable-p b) (cased-p b)))))
-         (list (code-char #x03C2))))))
+   #'(lambda (char index len)
+       (cond
+         ((and (char= char (code-char #x03A3))
+               (loop for i from (1- index) downto 0
+                  for c = (char string i)
+                  do (cond ((cased-p c) (return t))
+                           ((case-ignorable-p c))
+                           (t (return nil)))
+                  finally (return nil))
+               (loop for i from (1+ index) below len
+                  for c = (char string i)
+                  do (cond ((cased-p c) (return nil))
+                           ((case-ignorable-p c))
+                           (t (return t)))
+                  finally (return t)))
+          (list (code-char #x03C2)))
+       ((eql locale :lt)
+        (mapcar
+         #'code-char
+         (cdr (or
+               (assoc (char-code char)
+                      '((#x00CC . (#x0069 #x0307 #x0300))
+                        (#x00CD . (#x0069 #x0307 #x0301))
+                        (#x0128 . (#x0069 #x0307 #x0303))))
+               (and (loop for i from (1+ index) below len
+                       for c = (char string i)
+                       do (case (combining-class c)
+                            (230 (return t))
+                            (0 (return nil))
+                            (t t))
+                       finally (return nil))
+                    (assoc (char-code char)
+                           '((#x0049 . (#x0069 #x0307))
+                             (#x004A . (#x006A #x0307))
+                             (#x012E . (#x012F #x0307)))))))))
+       ((or (eql locale :tr) (eql locale :az))
+        (cond
+          ((char= char (code-char #x0130)) (list #\i))
+          ((and (char= char (code-char #x0307))
+                (loop for i from (1- index) downto 0
+                   for c = (char string i)
+                   do (case (combining-class c)
+                        (0 (return (char= c #\I)))
+                        (230 (return nil))
+                        (t t))
+                   finally (return nil)))
+           '(:none))
+          ((and (char= char #\I)
+                (loop for i from (1+ index) below len
+                   for c = (char string i)
+                   do (case (combining-class c)
+                        (0 (return t))
+                        (230 (return (char/= c (code-char #x0307))))
+                        (t t))
+                   finally (return t)))
+           (list (code-char #x0131)))
+          (t nil)))
+       (t nil)))))
 
-(defun titlecase (string)
+(defun titlecase (string &key locale)
   #!+sb-doc
   "Returns the titlecase of STRING. The resulting string can
-be longer than the input"
+be longer than the input.
+:LOCALE has the same semantics as the :LOCALE argument to UPPERCASE."
   (let ((words (words string))
         (cased nil))
    (loop for word in words
-      for initial = (char word 0)
-      for rest = (subseq word 1)
-      do (push (concatenate 'string (char-titlecase initial) (lowercase rest))
-               cased))
+      for first-cased = (or (position-if #'cased-p word) 0)
+      for pre = (subseq word 0 first-cased)
+      for initial = (char word first-cased)
+      for rest = (subseq word (1+ first-cased))
+      do (let ((up (char-titlecase initial)) (down (lowercase rest)))
+           (when (and (or (eql locale :tr) (eql locale :az))
+                      (eql initial #\i))
+             (setf up (list (code-char #x0130))))
+           (when (and (eql locale :lt)
+                      (soft-dotted-p initial)
+                      (eql (char down
+                                 (position-if
+                                  #'(lambda (c)
+                                      (or (eql (combining-class c) 0)
+                                          (eql (combining-class c) 230))) down))
+                           (code-char #x0307)))
+             (setf down (delete (code-char #x0307) down :count 1)))
+           (push (concatenate 'string pre up down) cased)))
    (apply #'concatenate 'string (nreverse cased))))
 
 (defun casefold (string)
@@ -1291,6 +1381,18 @@ If :STRICT is NIL, UNICODE= tests compatibility equavalence instead."
   (let ((str1 (normalize-string (subseq string1 start1 end1) (if strict :nfd :nfkd)))
         (str2 (normalize-string (subseq string2 start2 end2) (if strict :nfd :nfkd))))
     (string= str1 str2)))
+
+(defun unicode-equal (string1 string2 &key (start1 0) end1 (start2 0) end2 (strict t))
+    #!+sb-doc
+  "Determines whether STRING1 and STRING2 are canonically equivalent after
+casefoldin8 (that is, ignoring case differences) according to Unicode. The
+START and END arguments behave like the arguments to STRING=. If :STRICT is
+NIL, UNICODE= tests compatibility equavalence instead."
+  (let ((str1 (normalize-string (subseq string1 start1 end1) (if strict :nfd :nfkd)))
+        (str2 (normalize-string (subseq string2 start2 end2) (if strict :nfd :nfkd))))
+    (string=
+     (normalize-string (casefold str1) (if strict :nfd :nfkd))
+     (normalize-string (casefold str2) (if strict :nfd :nfkd)))))
 
 (defun unicode< (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
