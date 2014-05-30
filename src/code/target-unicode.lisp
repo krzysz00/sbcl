@@ -147,7 +147,7 @@
   "Returns the canonical combining class (CCC) of CHARACTER"
   (aref **character-misc-database** (+ 2 (misc-index character))))
 
-(defun decimal-digit (character)
+(defun decimal-value (character)
   #!+sb-doc
   "Returns the decimal digit value associated with CHARACTER or NIL if
 there is no such value.

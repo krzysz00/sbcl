@@ -669,7 +669,7 @@ codepoint.
 
 @include fun-sb-unicode-combining-class.texinfo
 
-@include fun-sb-unicode-decimal-digit.texinfo
+@include fun-sb-unicode-decimal-value.texinfo
 
 @include fun-sb-unicode-digit-value.texinfo
 
