@@ -188,7 +188,11 @@
 ;;; unparsed as FUNCTION. This is useful when we want a type that we
 ;;; can pass to TYPEP.
 (defvar *unparse-fun-type-simplify*)
-(!cold-init-forms (setq *unparse-fun-type-simplify* nil))
+;;; A flag to prevent TYPE-OF calls by user applications from returning
+;;; (NOT x). TYPE-SPECIFIER usually allows it to preserve information.
+(defvar *unparse-allow-negation*)
+(!cold-init-forms (setq *unparse-fun-type-simplify* nil
+                        *unparse-allow-negation* t))
 
 (!define-type-method (function :negate) (type)
   (make-negation-type :type type))
@@ -2442,6 +2446,8 @@ used for a COMPLEX component.~:@>"
   (let ((dims (array-type-dimensions type))
         (eltype (type-specifier (array-type-element-type type)))
         (complexp (array-type-complexp type)))
+    (if (and (eq complexp t) (not *unparse-allow-negation*))
+        (setq complexp :maybe))
     (cond ((eq dims '*)
            (if (eq eltype '*)
                (ecase complexp
@@ -2647,6 +2653,7 @@ used for a COMPLEX component.~:@>"
   ;; performed pairwise, so we don't have a good hook for it and our
   ;; representation doesn't allow us to easily detect the situation
   ;; anyway.
+  ;; But see SIMPLIFY-ARRAY-UNIONS which is able to do something like that.
   (let* ((eltype1 (array-type-element-type type1))
          (eltype2 (array-type-element-type type2))
          (stype1 (array-type-specialized-element-type type1))
@@ -3217,9 +3224,11 @@ used for a COMPLEX component.~:@>"
                                (type-intersection type1 t2))))))))
 
 (!def-type-translator or (&rest type-specifiers)
-  (apply #'type-union
-         (mapcar #'specifier-type
-                 type-specifiers)))
+  (let ((type (apply #'type-union
+                     (mapcar #'specifier-type type-specifiers))))
+    (if (union-type-p type)
+        (sb!kernel::simplify-array-unions type)
+        type)))
 
 ;;;; CONS types
 

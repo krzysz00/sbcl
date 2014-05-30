@@ -1059,8 +1059,14 @@
                       t)))
     (with-unique-names (n-vector)
       `(let ((,n-vector ,vector))
+         ;; Using THE creates a union type, e.g. (data-vector-ref (the
+         ;; unknown-type array) i) which, when unknown-type is unknown
+         ;; at compile-time, prevents data-vector-ref VOP from being
+         ;; selected.
+         ;; DECLARE prevents that from happening.
+         (declare (simple-vector ,n-vector))
          (the ,elt-type (data-vector-ref
-                         (the simple-vector ,n-vector)
+                         ,n-vector
                          (%check-bound ,n-vector (length ,n-vector) ,index)))))))
 
 (define-source-transform %svset (vector index value)
@@ -1072,8 +1078,9 @@
                       t)))
     (with-unique-names (n-vector)
       `(let ((,n-vector ,vector))
+         (declare (simple-vector ,n-vector))
          (truly-the ,elt-type (data-vector-set
-                               (the simple-vector ,n-vector)
+                               ,n-vector
                                (%check-bound ,n-vector (length ,n-vector) ,index)
                                (the ,elt-type ,value)))))))
 
@@ -1145,14 +1152,16 @@
   (let* ((type (lvar-type array))
          (element-ctype (array-type-upgraded-element-type type)))
     (cond
+      ((eql element-ctype *empty-type*)
+       `(data-nil-vector-ref array index))
       ((and (array-type-p type)
             (null (array-type-complexp type))
             (not (eql element-ctype *wild-type*))
             (eql (length (array-type-dimensions type)) 1))
        (let* ((declared-element-ctype (array-type-declared-element-type type))
               (bare-form
-               `(data-vector-ref array
-                 (%check-bound array (array-dimension array 0) index))))
+                `(data-vector-ref array
+                                  (%check-bound array (array-dimension array 0) index))))
          (if (type= declared-element-ctype element-ctype)
              bare-form
              `(the ,(type-specifier declared-element-ctype) ,bare-form))))

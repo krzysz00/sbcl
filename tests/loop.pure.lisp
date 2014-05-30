@@ -181,8 +181,8 @@
   (assert (= (loop for v fixnum being each hash-key in ht sum v) 8))
   (assert (= (loop for v fixnum being each hash-value in ht sum v) 18))
   #+#.(cl:if (cl:eq sb-ext:*evaluator-mode* :compile) '(and) '(or))
-  (assert (raises-error? (loop for v float being each hash-value in ht sum v)
-                         type-error)))
+  (assert-error (loop for v float being each hash-value in ht sum v)
+                type-error))
 
 ;; arithmetic indexes can be NIL or symbols.
 (assert (equal (loop for nil from 0 to 2 collect nil)
@@ -285,3 +285,41 @@
                                     collect (char-code c)))))
          (consts (ctu:find-code-constants fun :type '(or symbol list))))
     (assert (or (null consts) (equal 'character consts)))))
+
+(with-test (:name :type-of-nilled-vars)
+  (assert (equal (loop for (a b) float = '(1.0 2.0)
+                       return (list a b))
+                 '(1.0 2.0)))
+  (assert (equal (loop for (a nil b) float = '(1.0 3.0 2.0)
+                       return (list a b))
+                 '(1.0 2.0))))
+
+(with-test (:name :misplaced-diclarations)
+  (assert-no-signal
+   (compile nil `(lambda ()
+                   (loop with (a) = '(1.0)
+                         and (nil f)
+                         return (list a f))))
+   warning))
+(with-test (:name :duplicate-bindings)
+  (assert-error
+   (funcall (compile nil `(lambda ()
+                            (loop with (a b) = '(1.0 2.0)
+                                  and (c a) = '(3.0 4.0)
+                                  return (list a b c))))))
+  (assert-error
+   (funcall (compile nil `(lambda ()
+                            (loop with a = 10
+                                  with ((a) b) = '((1.0) 2.0)
+                                  return (list a b))))))
+  (assert-error
+   (funcall (compile nil `(lambda ()
+                            (loop with (b) = '(10)
+                                  with (a) = '(3)
+                                  for b to 10
+                                  collect a)))))
+  (assert-error
+   (funcall (compile nil `(lambda ()
+                            (loop with (a) = '(3)
+                                  for b to 10
+                                  collect a into b))))))
