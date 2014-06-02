@@ -748,7 +748,7 @@ collating/sorting strings according to the Unicode Collation Algorithm.
 
 The following functions are provided for detecting visually confusable strings:
 
-@include fun-sb-unicode-unicode-confusable-p.texinfo
+@include fun-sb-unicode-confusable-p.texinfo
 
 @subsection Breaking strings
 

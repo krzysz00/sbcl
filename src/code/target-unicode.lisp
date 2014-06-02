@@ -1481,7 +1481,7 @@ with variable-weight characters, as described in UTS #10"
                (incf i)))
          (setf best-node nil new-i nil))
     (apply #'concatenate 'string (nreverse ret))))
-                
+
 (defun confusable-p (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
   "Determines whether STRING1 and STRING2 could be visually confusable
