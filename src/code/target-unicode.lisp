@@ -48,16 +48,36 @@
                                       sb!xc:*compile-file-truename*)
                                      :direction :input
                                      :element-type 'character)
+                      (read stream)))
+                   (confusable-sets
+                    (with-open-file (stream
+                                     (merge-pathnames
+                                      (make-pathname
+                                       :directory
+                                       '(:relative :up :up "output")
+                                       :name "confusables" :type "lisp-expr")
+                                      sb!xc:*compile-file-truename*)
+                                     :direction :input
+                                     :element-type 'character)
                       (read stream))))
                `(progn
                   (sb!impl::defglobal **proplist-properties** ',proplist-dump)
+                  (sb!impl::defglobal **confusables** ',confusable-sets)
                   (defun !unicode-properties-cold-init ()
                     (let ((hash (make-hash-table)) (list ',proplist-dump))
                       (do ((k (car list) (car list)) (v (cadr list) (cadr list)))
                           ((not list) hash)
                         (setf (gethash k hash) v)
                         (setf list (cddr list)))
-                      (setf **proplist-properties** hash)))))))
+                      (setf **proplist-properties** hash))
+                    (setf **confusables**
+                          (create-union-find
+                           (mapcar
+                            #'(lambda (set)
+                                (mapcar #'(lambda (item)
+                                            (coerce (mapcar #'code-char item)
+                                                    'string)) set))
+                            ',confusable-sets))))))))
   (unicode-property-init))
 
 ;;; Unicode property access
@@ -1432,3 +1452,6 @@ with variable-weight characters, as described in UTS #10"
              :start2 start2 :end2 end2)
    (unicode> string1 string2 :start1 start1 :end1 end1
              :start2 start2 :end2 end2)))
+
+
+;;; Confusable detection

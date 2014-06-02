@@ -198,6 +198,14 @@ Length should be adjusted when the standard changes.")
        finally (return hash)))
 "Table of line break classes. Used in the creation of misc entries.")
 
+(defparameter *confusables*
+  (with-open-file (s (make-pathname :name "ConfusablesEdited" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop for line = (read-line s nil nil) while line
+       unless (eql 0 (position #\# line))
+       collect (mapcar #'parse-codepoints (split-string line #\<))))
+  "List of confusable codepoint sets")
+
 (defvar *block-first* nil)
 
 
@@ -798,4 +806,14 @@ Length should be adjusted when the standard changes.")
     (with-standard-io-syntax
       (let ((*print-pretty* t))
         (prin1 *different-casefolds*))))
+  (with-open-file (*standard-output*
+                   (make-pathname :name "confusables"
+                                  :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (prin1 *confusables*))))
   (values))
