@@ -2579,6 +2579,9 @@ SB-KERNEL) have been undone, but probably more remain."
                "LOWERCASE"
                "TITLECASE"
                "CASEFOLD"
+               "GRAPHEME-BREAK-CLASS"
+               "WORD-BREAK-CLASS"
+               "SENTENCE-BREAK-CLASS"
                "GRAPHEMES"
                "WORDS"
                "SENTENCES"
@@ -2588,7 +2591,8 @@ SB-KERNEL) have been undone, but probably more remain."
                "UNICODE<"
                "UNICODE<="
                "UNICODE>"
-               "UNICODE>="))
+               "UNICODE>="
+               "CONFUSABLE-P"))
 
    #s(sb-cold:package-data
       :name "SB!UNIX"

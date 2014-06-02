@@ -67,6 +67,7 @@
 (defun uf-set-containing (item forest)
   ;; Effectively a noop if you pass a representative
   (let ((representative (uf-find item forest)))
+    (unless representative (return-from uf-set-containing nil))
     (loop for node across (uf-forest-members forest)
          when (eql (%uf-find node forest) representative)
          collect (uf-node-item node))))

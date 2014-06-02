@@ -701,6 +701,12 @@ codepoint.
 
 @include fun-sb-unicode-soft-dotted-p.texinfo
 
+@include fun-sb-unicode-grapheme-break-class.texinfo
+
+@include fun-sb-unicode-word-break-class.texinfo
+
+@include fun-sb-unicode-sentence-break-class.texinfo
+
 @subsection String operations
 
 SBCL can normalize strings using:
@@ -739,6 +745,10 @@ collating/sorting strings according to the Unicode Collation Algorithm.
 @include fun-sb-unicode-unicode-gt.texinfo
 
 @include fun-sb-unicode-unicode-gt=.texinfo
+
+The following functions are provided for detecting visually confusable strings:
+
+@include fun-sb-unicode-unicode-confusable-p.texinfo
 
 @subsection Breaking strings
 

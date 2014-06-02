@@ -250,7 +250,7 @@ If :RESOLVE is NIL, returns the character class found in the property file.
 If :RESOLVE is non-NIL, centain line-breaking classes will be mapped to othec
 classes as specified in the applicable standards. Addinionally, if :RESOLVE
 is :EAST-ASIAN, Ambigious (class :AI) characters will be mapped to the
-Ideographic (:ID) class instead of Alphabetic (:AL)"
+Ideographic (:ID) class instead of Alphabetic (:AL)."
   (when (and resolve (listp character)) (setf character (car character)))
   (when (and resolve (not character)) (return-from line-break-class :nil))
   (let ((raw-class
@@ -300,7 +300,7 @@ appear in an SBCL string. The line-breaking behavior of surrogates is undefined.
 3"
   (or (member (general-category character)
               '(:Mn :Me :Cf :Lm :Sk))
-      (member (word-break-type character)
+      (member (word-break-class character)
               '(:midletter :midnumlet))))
 
 (defun alphabetic-p (character)
@@ -780,7 +780,9 @@ The result is not guaranteed to have the same length as the input."
 
 ;; Word breaking sets this to make their algorithms less tricky
 (defvar *other-break-special-graphemes* nil)
-(defun grapheme-break-type (char)
+(defun grapheme-break-class (char)
+  #!+sb-doc
+  "Returns the grapheme breaking class of CHARACTER, as specified in UAX #29."
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
         (not-spacing-mark
@@ -822,8 +824,8 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
         ((not first) (nreverse (mapcar #'(lambda (l) (coerce l 'string)) clusters)))
       (flet ((brk () (push (nreverse cluster) clusters) (setf cluster (list second)))
              (nobrk () (push second cluster)))
-        (let ((c1 (grapheme-break-type first))
-              (c2 (grapheme-break-type second)))
+        (let ((c1 (grapheme-break-class first))
+              (c2 (grapheme-break-class second)))
           (cond
             ((and (eql c1 :cr) (eql c2 :lf)) (nobrk))
             ((or (member c1 '(:control :cr :lf))
@@ -837,7 +839,9 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
              ((or (eql c2 :extend) (eql c2 :spacing-mark) (eql c1 :prepend)) (nobrk))
              (t (brk))))))))
 
-(defun word-break-type (char)
+(defun word-break-class (char)
+  #!+sb-doc
+  "Returns the word breaking class of CHARACTER, as specified in UAX #29."
   ;; Words use graphemes as characters to deal with the ignore rule
   (when (listp char) (setf char (car char)))
   (let ((cp (when char (char-code char)))
@@ -861,7 +865,7 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
       ((= cp #x27) :single-quote)
       ((= cp #x22) :double-quote)
       ((ordered-ranges-member cp newlines) :newline)
-      ((or (eql (grapheme-break-type char) :extend)
+      ((or (eql (grapheme-break-class char) :extend)
            (eql gc :mc)) :extend)
       ((<= #x1F1E6 cp #x1F1FF) :regional-indicator)
       ((and (eql gc :Cf) (not (<= #x200B cp #x200D))) :format)
@@ -905,9 +909,9 @@ word breaking rules specified in UAX #29. Returns a list of strings"
         ((not first) (nreverse (mapcar #'(lambda (l) (coerce l 'string)) words)))
       (flet ((brk () (push (nreverse word) words) (setf word nil) (flatpush second word))
              (nobrk () (flatpush second word)))
-        (let ((c1 (word-break-type first))
-              (c2 (word-break-type second))
-              (c3 (when (and tail (cdr tail)) (word-break-type (cadr tail)))))
+        (let ((c1 (word-break-class first))
+              (c2 (word-break-class second))
+              (c3 (when (and tail (cdr tail)) (word-break-class (cadr tail)))))
           (cond
             (flag (nobrk) (setf flag nil))
             ;; CR+LF are bound together by the grapheme clustering
@@ -942,7 +946,9 @@ word breaking rules specified in UAX #29. Returns a list of strings"
             ((and (eql c1 :regional-indicator) (eql c2 :regional-indicator)) (nobrk))
             (t (brk))))))))
 
-(defun sentence-break-type (char)
+(defun sentence-break-class (char)
+  #!+sb-doc
+  "Returns the sentence breaking class of CHARACTER, as specified in UAX #29."
   (when (listp char) (setf char (car char)))
   (let ((cp (when char (char-code char)))
         (gc (when char (general-category char)))
@@ -955,7 +961,7 @@ word breaking rules specified in UAX #29. Returns a list of strings"
       ((not char) nil)
       ((= cp 10) :LF)
       ((= cp 13) :CR)
-      ((or (eql (grapheme-break-type char) :extend)
+      ((or (eql (grapheme-break-class char) :extend)
            (eql gc :mc)) :extend)
       ((or (eql cp #x0085) (<= #x2028 cp #x2029)) :sep)
       ((and (eql gc :Cf) (not (<= #x200C cp #x200D))) :format)
@@ -990,7 +996,7 @@ Specifically,
                (flush) (push x clusters))
              (nobrk (x) (push x cluster)))
     (loop for ch in chars
-       for type = (sentence-break-type ch)
+       for type = (sentence-break-class ch)
        do (cond
             ((and (eql last-seen :cr) (eql type :lf)) (nobrk ch) (flush) (setf last-seen nil))
             ((eql last-seen :cr) (brk ch) (setf last-seen nil))
@@ -1029,9 +1035,9 @@ sentence breaking rules specified in UAX #29"
       (flet ((brk () (push (nreverse sentence) sentences)
                   (setf sentence nil) (flatpush second sentence))
              (nobrk () (flatpush second sentence)))
-      (let ((c1 (sentence-break-type first))
-            (c2 (sentence-break-type second))
-            (c3 (sentence-break-type third)))
+      (let ((c1 (sentence-break-class first))
+            (c2 (sentence-break-class second))
+            (c3 (sentence-break-class third)))
         (cond
           ((eql state :brk-next) (brk) (setf state nil))
           ((eql state :nobrk-next) (nobrk) (setf state nil))
@@ -1063,7 +1069,7 @@ sentence breaking rules specified in UAX #29"
                     (if (and third (not (or (member c3 special-handling)
                                             (eql c3 :numeric))))
                         (cdr tail) tail)
-                  for type = (sentence-break-type c) do
+                  for type = (sentence-break-class c) do
                     (when (member type '(:oletter :upper :sep :cr :lf
                                          :sterm :aterm))
                       (return nil))
@@ -1455,3 +1461,67 @@ with variable-weight characters, as described in UTS #10"
 
 
 ;;; Confusable detection
+
+(defun canonically-deconfuse (string)
+  (let (ret (i 0) new-i (len (length string))
+            best-node)
+    (loop while (< i len) do
+         (loop for offset from 1 to 5
+            while (<= (+ i offset) len)
+            do
+              (let ((node (uf-find (subseq string i (+ i offset))
+                                   **confusables**)))
+                (when node (setf best-node node new-i (+ i offset)))))
+         (if best-node
+             (progn
+               (push (uf-node-item best-node) ret)
+               (setf i new-i))
+             (progn
+               (push (subseq string i (1+ i)) ret)
+               (incf i)))
+         (setf best-node nil new-i nil))
+    (apply #'concatenate 'string (nreverse ret))))
+                
+(defun confusable-p (string1 string2 &key (start1 0) end1 (start2 0) end2)
+  #!+sb-doc
+  "Determines whether STRING1 and STRING2 could be visually confusable
+according to the IDNA confusableSummary.txt table"
+    (let* ((str1 (normalize-string (subseq string1 start1 end1) :nfd))
+           (str2 (normalize-string (subseq string2 start2 end2) :nfd))
+           (skeleton1 (normalize-string (canonically-deconfuse str1) :nfd))
+           (skeleton2 (normalize-string (canonically-deconfuse str2) :nfd)))
+      (string= skeleton1 skeleton2)))
+
+(defun %flatten-all-ways (heads to-append)
+  (when (not to-append) (return-from %flatten-all-ways heads))
+  (let ((ret nil))
+    (loop for elem in (car to-append) do
+         (loop for list in heads do
+              (push (cons elem list) ret)))
+    (%flatten-all-ways ret (cdr to-append))))
+
+(defun flatten-all-ways (lists)
+  (mapcar #'reverse (%flatten-all-ways (mapcar #'list (car lists)) (cdr lists))))
+
+(defun list-all-confusables (string)
+  #!+sb-doc
+  "Returns a list of all strings that could be visually confusable with STRING."
+  (let (ret (i 0) new-i (len (length string))
+            best-set)
+    (loop while (< i len) do
+         (loop for offset from 1 to 5
+            while (<= (+ i offset) len)
+            do
+              (let ((set (uf-set-containing (subseq string i (+ i offset))
+                                            **confusables**)))
+                (when set (setf best-set set new-i (+ i offset)))))
+         (if best-set
+             (progn
+               (push best-set ret)
+               (setf i new-i))
+             (progn
+               (push (list (subseq string i (1+ i))) ret)
+               (incf i)))
+         (setf best-set nil new-i nil))
+    (mapcar #'(lambda (strs) (apply #'concatenate 'string strs))
+            (flatten-all-ways (nreverse ret)))))
