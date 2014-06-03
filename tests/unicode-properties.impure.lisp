@@ -56,7 +56,7 @@ is replaced with replacement."
       (assert (eql gc (general-category char)))
       (assert (= (parse-integer ccc) (combining-class char)))
       (assert (eql bidi (bidi-class char)))
-      (assert (eql decimal-digit (decimal-digit char)))
+      (assert (eql decimal-digit (decimal-value char)))
       (assert (eql digit (digit-value char)))
       (assert (eql numeric (numeric-value char)))
       (assert (eql bidi-mirrored (mirrored-p char))))))
@@ -136,57 +136,57 @@ Wanted ~S, got ~S."
 
 (test-script)
 
-(defun test-grapheme-break-type ()
+(defun test-grapheme-break-class ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/GraphemeBreakProperty.txt"
                      :external-format :ascii)
-    (with-test (:name (:grapheme-break-type)
+    (with-test (:name (:grapheme-break-class)
                 :skipped-on '(not :sb-unicode))
       (loop for line = (read-line s nil nil)
             while line
             unless (or (string= "" line) (eql 0 (position #\# line)))
-            do (test-property-line #'sb-unicode::grapheme-break-type
+            do (test-property-line #'grapheme-break-class
                                    (replace-all "SpacingMark" "SPACING-MARK"
                                                 (substitute #\- #\_ line)))))))
 
-(test-grapheme-break-type)
+(test-grapheme-break-class)
 
-(defun test-word-break-type ()
+(defun test-word-break-class ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/WordBreakProperty.txt"
                      :external-format :ascii)
-    (with-test (:name (:word-break-type)
+    (with-test (:name (:word-break-class)
                 :skipped-on '(not :sb-unicode))
       (loop for line = (read-line s nil nil)
             while line
             unless (or (string= "" line) (eql 0 (position #\# line)))
-            do (test-property-line #'sb-unicode::word-break-type
+            do (test-property-line #'word-break-class
                                    (substitute #\- #\_ line))))))
 
-(test-word-break-type)
+(test-word-break-class)
 
-(defun test-sentence-break-type ()
+(defun test-sentence-break-class ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/SentenceBreakProperty.txt"
                      :external-format :ascii)
-    (with-test (:name (:sentence-break-type)
+    (with-test (:name (:sentence-break-class)
                 :skipped-on '(not :sb-unicode))
       (loop for line = (read-line s nil nil)
             while line
             unless (or (string= "" line) (eql 0 (position #\# line)))
-            do (test-property-line #'sb-unicode::sentence-break-type line)))))
+            do (test-property-line #'sentence-break-class line)))))
 
-(test-sentence-break-type)
+(test-sentence-break-class)
 
-(defun test-line-break-type ()
+(defun test-line-break-class ()
   (declare (optimize (debug 2)))
   (with-open-file (s "../tools-for-build/LineBreakProperty.txt"
                      :external-format :ascii)
-    (with-test (:name (:line-break-type)
+    (with-test (:name (:line-break-class)
                 :skipped-on '(not :sb-unicode))
       (loop for line = (read-line s nil nil)
             while line
             unless (or (string= "" line) (eql 0 (position #\# line)))
             do (test-property-line #'line-break-class line)))))
 
-(test-line-break-type)
+(test-line-break-class)

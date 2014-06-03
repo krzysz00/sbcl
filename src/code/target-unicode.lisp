@@ -556,6 +556,21 @@ disappears when accents are placed on top of it. and NIL otherwise"
           string
           (lstring result)))))
 
+(defun quick-normalization-check (string no-prop &optional maybe-prop)
+  (let ((prev-cc 0))
+    (loop for c across string
+       for cp = (char-code c)
+       for cc = (combining-class c)
+       do
+         (unless (<= #x100000 cp #x10FFFF)
+           (if (or
+                (and (> prev-cc cc) (/= cc 0))
+                (proplist-p c no-prop)
+                (proplist-p c maybe-prop))
+               (return-from quick-normalization-check nil)
+               (setf prev-cc cc))))
+    string))
+
 (defun normalize-string (string &optional (form :nfd))
   #!+sb-doc
   "Normalize STRING to the Unicode normalization form form.
@@ -574,13 +589,21 @@ disappears when accents are placed on top of it. and NIL otherwise"
     ((array character (*))
      (ecase form
        ((:nfc)
-        (canonically-compose (sort-combiners (decompose-string string))))
+        (or
+         (quick-normalization-check string :nfc-qc :nfc-qc-maybe)
+         (canonically-compose (sort-combiners (decompose-string string)))))
        ((:nfd)
-        (sort-combiners (decompose-string string)))
+        (or
+         (quick-normalization-check string :nfd-qc)
+         (sort-combiners (decompose-string string))))
        ((:nfkc)
-        (canonically-compose (sort-combiners (decompose-string string :compatibility))))
+        (or
+         (quick-normalization-check string :nfkc-qc :nfkc-qc-maybe)
+         (canonically-compose (sort-combiners (decompose-string string :compatibility)))))
        ((:nfkd)
-        (sort-combiners (decompose-string string :compatibility)))))
+        (or
+         (quick-normalization-check string :nfkd-qc)
+         (sort-combiners (decompose-string string :compatibility))))))
     ((array nil (*)) string)))
 
 

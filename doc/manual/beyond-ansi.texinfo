@@ -683,8 +683,6 @@ codepoint.
 
 @include fun-sb-unicode-script.texinfo
 
-@include fun-sb-unicode-line-break-class.texinfo
-
 @include fun-sb-unicode-uppercase-p.texinfo
 
 @include fun-sb-unicode-lowercase-p.texinfo
@@ -708,6 +706,8 @@ codepoint.
 @include fun-sb-unicode-word-break-class.texinfo
 
 @include fun-sb-unicode-sentence-break-class.texinfo
+
+@include fun-sb-unicode-line-break-class.texinfo
 
 @subsection String operations
 

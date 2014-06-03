@@ -486,7 +486,8 @@ Length should be adjusted when the standard changes.")
 (defun parse-property (stream &optional name)
   (let ((result (make-array 1 :fill-pointer 0 :adjustable t)))
     (loop for line = (read-line stream nil nil)
-       while (and line (not (position #\= line)))
+       ;; Deal with Blah=Blah in DerivedNormalizationPRops.txt
+       while (and line (not (position #\= (substitute #\Space #\= line :count 1))))
        for entry = (subseq line 0 (position #\# line))
        when (and entry (string/= entry ""))
        do
@@ -535,9 +536,28 @@ Length should be adjusted when the standard changes.")
     (parse-property s :sterm)
     (parse-property s :variation-selector)
     (parse-property s) ;; Pattern_White_Space
-    (parse-property s) ;; Pattern_Syntax
-    (setf **proplist-properties** (nreverse **proplist-properties**))
-    (values)))
+    (parse-property s)) ;; Pattern_Syntax
+
+  (with-open-file (s (make-pathname :name "DerivedNormalizationProps"
+                                    :type "txt"
+                                    :defaults *unicode-character-database*)
+                     :direction :input)
+    (parse-property s) ;; Initial comments
+    (parse-property s) ;; FC_NFKC_Closure
+    (parse-property s) ;; FC_NFKC_Closure
+    (parse-property s) ;; Full_Composition_Exclusion
+    (parse-property s) ;; NFD_QC Comments
+    (parse-property s :nfd-qc)
+    (parse-property s) ;; NFC_QC Comments
+    (parse-property s :nfc-qc)
+    (parse-property s :nfc-qc-maybe)
+    (parse-property s) ;; NFKD_QC Comments
+    (parse-property s :nfkd-qc)
+    (parse-property s) ;; NFKC_QC Comments
+    (parse-property s :nfkc-qc)
+    (parse-property s :nfkc-qc-maybe))
+  (setf **proplist-properties** (nreverse **proplist-properties**))
+  (values))
 
 
 ;;; Collation keys
