@@ -701,6 +701,8 @@ codepoint.
 
 @include fun-sb-unicode-soft-dotted-p.texinfo
 
+@include fun-sb-unicode-default-ignorable-p.texinfo
+
 @include fun-sb-unicode-grapheme-break-class.texinfo
 
 @include fun-sb-unicode-word-break-class.texinfo

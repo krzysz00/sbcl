@@ -328,6 +328,20 @@ and NIL otherwise"
 disappears when accents are placed on top of it. and NIL otherwise"
   (proplist-p character :soft-dotted))
 
+(defun default-ignorable-p (character)
+  #!+sb-doc
+  "Returns T if CHARACTER is a Default_Ignorable_Code_Point"
+  (and
+   (or (proplist-p character :other-default-ignorable)
+       (eql (general-category character) :cf)
+       (proplist-p character :variation-selector))
+   (not
+    (or (whitespace-p character)
+        (ordered-ranges-member
+         (char-code character)
+         #(#x0600 #x0604 #x06DD #x06DD #x070F #x070F #xFFF9 #xFFFB
+           #x110BD #x110BD))))))
+
 
 ;;; Implements UAX#15: Normalization Forms
 (defun char-decomposition-info (char)

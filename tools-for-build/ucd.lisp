@@ -526,14 +526,14 @@ Length should be adjusted when the standard changes.")
     (parse-property s) ;; IDS_Trinary_Operator
     (parse-property s) ;; Radical
     (parse-property s :unified-ideograph)
-    (parse-property s) ;; Other_Default_Ignorable_Code_Point
+    (parse-property s :other-default-ignorable)
     (parse-property s) ;; Deprecated
     (parse-property s :soft-dotted)
     (parse-property s) ;; Logical_Order_Exception
     (parse-property s) ;; Other_ID_Start
     (parse-property s) ;; Other_ID_Continue
     (parse-property s :sterm)
-    (parse-property s) ;; Variation_Selector
+    (parse-property s :variation-selector)
     (parse-property s) ;; Pattern_White_Space
     (parse-property s) ;; Pattern_Syntax
     (setf **proplist-properties** (nreverse **proplist-properties**))
