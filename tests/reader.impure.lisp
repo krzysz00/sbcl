@@ -32,7 +32,12 @@
                 (symbol #\b #\a #\UFB04 #\e #\: #\: #\c)))
     (assert (not (eq (symbol #\| #\f #\f #\l #\|) (symbol #\| #\UFB04 #\|))))
     (assert (not (eq (symbol #\\ #\U32C0) (symbol #\1 #\U6708))))
-    (assert (eq (symbol #\U32C0) (symbol #\1 #\U6708)))))
+    (assert (eq (symbol #\U32C0) (symbol #\1 #\U6708)))
+    (let ((*readtable* (copy-readtable)))
+      (setf (sb-ext:readtable-normalization *readtable*) nil)
+      (assert (not (eq (symbol #\b #\a #\f #\f #\l #\e)
+                       (symbol #\b #\a #\UFB04 #\e))))
+      (assert (not (eq (symbol #\U32C0) (symbol #\1 #\U6708)))))))
 
 ;;; Bug 30, involving mistakes in binding the read table, made this
 ;;; code fail.

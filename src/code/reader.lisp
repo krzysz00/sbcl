@@ -247,6 +247,21 @@
   (assert-not-standard-readtable readtable '(setf readtable-case))
   (setf (%readtable-case readtable) case))
 
+(defun readtable-normalization (readtable)
+  #!+sb-doc
+  "Returns T if READTABLE normalizes strings to NFKC, and NIL otherwise.
+The READTABLE-NORMALIZATION of the standard readtable is T."
+  (%readtable-normalization readtable))
+
+(defun (setf readtable-normalization) (new-value readtable)
+  #!+sb-doc
+  "Sets the READTABLE-NORMALIZATION of the given READTABLE to NEW-VALUE.
+Pass T to make READTABLE normalize symbols to NFKC (the default behavior),
+and NIL to suppress normalization."
+  ;; This function does not accept a readtable designator, only a readtable.
+  (assert-not-standard-readtable readtable '(setf readtable-normalization))
+  (setf (%readtable-normalization readtable) new-value))
+
 (defun replace/eql-hash-table (to from &optional (transform #'identity))
   (maphash (lambda (k v) (setf (gethash k to) (funcall transform v))) from)
   to)
@@ -297,6 +312,8 @@
      #'copy-cmt-entry)
     (setf (readtable-case really-to-readtable)
           (readtable-case really-from-readtable))
+    (setf (readtable-normalization really-to-readtable)
+          (readtable-normalization really-from-readtable))
     really-to-readtable))
 
 (defun set-syntax-from-char (to-char from-char &optional
@@ -918,6 +935,8 @@ standard Lisp readtable when NIL."
 ;; Normalize BUFFER to NFKC, ignoring ESCAPES, a list of escaped
 ;; indices in reverse order. Returns a new list of escapes.
 (defun normalize-read-buffer (escapes)
+  (unless (readtable-normalization *readtable*)
+    (return-from normalize-read-buffer escapes))
   (let ((current-buffer (read-buffer-to-string))
         (old-escapes (nreverse escapes))
         new-escapes (str-to-normalize (make-string *ouch-ptr*))
