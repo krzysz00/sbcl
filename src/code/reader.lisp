@@ -781,6 +781,7 @@ standard Lisp readtable when NIL."
 ;;; token in *READ-BUFFER*, and return two values:
 ;;; -- a list of the escaped character positions, and
 ;;; -- The position of the first package delimiter (or NIL).
+;;; Normalizes the input to NFKC before returning
 (defun internal-read-extended-token (stream firstchar escape-firstchar)
   (reset-read-buffer)
   (let ((escapes '()))
@@ -795,7 +796,11 @@ standard Lisp readtable when NIL."
               (unread-char char stream)
               t)
              (t nil))
-       (values escapes colon))
+       (progn
+         (setf escapes (normalize-read-buffer escapes))
+         ;; The first colon may or may not have just moved
+         (when colon (setf colon (position #\: *read-buffer*)))
+         (values escapes colon)))
     (cond ((single-escape-p char)
            ;; It can't be a number, even if it's 1\23.
            ;; Read next char here, so it won't be casified.
@@ -909,6 +914,39 @@ standard Lisp readtable when NIL."
   #!+sb-doc
   "the radix that Lisp reads numbers in")
 (declaim (type (integer 2 36) *read-base*))
+
+;; Normalize BUFFER to NFKC, ignoring ESCAPES, a list of escaped
+;; indices in reverse order. Returns a new list of escapes.
+(defun normalize-read-buffer (escapes)
+  (let ((current-buffer (read-buffer-to-string))
+        (old-escapes (nreverse escapes))
+        new-escapes (str-to-normalize (make-string *ouch-ptr*))
+        (normalize-ptr 0))
+    (reset-read-buffer)
+    (macrolet ((clear-str-to-normalize ()
+               `(progn
+                  (loop for char across (sb!unicode:normalize-string
+                                         (subseq str-to-normalize 0 normalize-ptr)
+                                         :nfkc) do
+                       (ouch-read-buffer char))
+                  (setf normalize-ptr 0)))
+               (push-to-normalize (ch)
+                 (let ((ch-gen (gensym)))
+                   `(let ((,ch-gen ,ch))
+                      (setf (char str-to-normalize normalize-ptr) ,ch-gen)
+                      (incf normalize-ptr)))))
+      (loop for c across current-buffer
+         for i from 0
+         do
+           (if (eql i (car old-escapes))
+               (progn
+                 (clear-str-to-normalize)
+                 (push *ouch-ptr* new-escapes)
+                 (pop old-escapes)
+                 (ouch-read-buffer c))
+               (push-to-normalize c)))
+      (clear-str-to-normalize)
+      new-escapes)))
 
 ;;; Modify the read buffer according to READTABLE-CASE, ignoring
 ;;; ESCAPES. ESCAPES is a list of the escaped indices, in reverse
@@ -1279,6 +1317,7 @@ extended <package-name>::<form-in-package> syntax."
         (#.+char-attr-package-delimiter+ (go COLON))
         (t (go SYMBOL)))
       COLON
+      (setf escapes (normalize-read-buffer escapes))
       (casify-read-buffer escapes)
       (unless (zerop colons)
         (simple-reader-error stream
@@ -1332,6 +1371,7 @@ extended <package-name>::<form-in-package> syntax."
                               package-designator))
         (t (go SYMBOL)))
       RETURN-SYMBOL
+      (setf escapes (normalize-read-buffer escapes))
       (casify-read-buffer escapes)
       (let ((found (if package-designator
                        (or (find-package package-designator)

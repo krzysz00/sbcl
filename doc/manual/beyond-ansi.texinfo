@@ -715,6 +715,8 @@ SBCL can normalize strings using:
 
 @include fun-sb-unicode-normalize-string.texinfo
 
+@include fun-sb-unicode-normalized-p.texinfo
+
 SBCL implements the full range of Unicode case operations with the
 functions
 
