@@ -47,6 +47,18 @@ Example:
 Doesn't alter @code{*package*}: if @code{foo::bar} would cause a
 read-time package lock violation, so does @code{foo::(bar)}.
 
+SBCL also extends the reader to normalize all symbols to Normalization
+Form KC in builds with Unicode enabled. Whether symbols are normalized
+is controlled by
+
+@include fun-sb-ext-readtable-normalization.texinfo
+
+Symbols created by
+@findex @cl{intern}
+@code{intern} and similar functions are not affected by this setting. If
+@code{sb-ext:readtable-normalization} is @code{t}, symbols that are not
+normalized are escaped during printing.
+
 @node  Package-Local Nicknames
 @comment  node-name,  next,  previous,  up
 @section Package-Local Nicknames
@@ -715,6 +727,8 @@ SBCL can normalize strings using:
 
 @include fun-sb-unicode-normalize-string.texinfo
 
+@include fun-sb-unicode-normalized-p.texinfo
+
 SBCL implements the full range of Unicode case operations with the
 functions
 
@@ -727,11 +741,14 @@ functions
 @include fun-sb-unicode-casefold.texinfo
 
 It also extends standard Common Lisp case functions such as
-@findex @cl{string-upcase} and
-@findex @cl{char-downcase} to support a subset of Unicode's casing
-behavior. Specifically, a character is
-@findex @cl{both-case-p} if its case mapping in Unicode is one-to-one
-and invertable.
+@findex @cl{string-upcase}
+@code{string-upcase} and
+@findex @cl{char-downcase}
+@code{string-downcase} to support a subset of Unicode's casing behavior.
+Specifically, a character is
+@findex @cl{both-case-p} 
+@code{both-case-p} if its case mapping in Unicode is one-to-one and
+invertable.
 
 The @code{sb-unicode} package also provides functions for
 collating/sorting strings according to the Unicode Collation Algorithm. 

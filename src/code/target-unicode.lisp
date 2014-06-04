@@ -606,6 +606,12 @@ disappears when accents are placed on top of it. and NIL otherwise"
          (sort-combiners (decompose-string string :compatibility))))))
     ((array nil (*)) string)))
 
+(defun normalized-p (string &optional (form :nfd))
+  #!+sb-doc
+  "Tests if STRING is normalized to FORM"
+  ;; This is fast because of the quick check
+  (string= string (normalize-string string form)))
+
 
 ;;; Unicode case algorithms
 ;; FIXME: Make these parts less redundant (macro?)

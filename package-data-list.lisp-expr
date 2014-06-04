@@ -724,6 +724,9 @@ like *STACK-TOP-HINT* and unsupported stuff like *TRACED-FUN-LIST*."
 
                "PRINT-UNREADABLY"
 
+               ;; Readtable normalization control
+               "READTABLE-NORMALIZATION"
+
                ;; and a mechanism for controlling same at compile time
                "MUFFLE-CONDITIONS" "UNMUFFLE-CONDITIONS"
 
@@ -2576,6 +2579,7 @@ SB-KERNEL) have been undone, but probably more remain."
                "SOFT-DOTTED-P"
                "DEFAULT-IGNORABLE-P"
                "NORMALIZE-STRING"
+               "NORMALIZED-P"
                "UPPERCASE"
                "LOWERCASE"
                "TITLECASE"
