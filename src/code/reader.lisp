@@ -901,12 +901,8 @@ standard Lisp readtable when NIL."
               (unread-char char stream)
               t)
              (t nil))
-       (progn
-         (setf escapes (normalize-read-buffer escapes))
-         ;; The first colon may or may not have just moved
-         (when colon
-           (setf colon (position #\: (copy-token-buf-string))))
-         (values escapes colon)))
+       ;; Returns (values new-escapes new-colon)
+       (normalize-read-buffer escapes colon))
     (cond ((single-escape-p char)
            ;; It can't be a number, even if it's 1\23.
            ;; Read next char here, so it won't be casified.
@@ -1023,13 +1019,13 @@ standard Lisp readtable when NIL."
 
 ;; Normalize BUFFER to NFKC, ignoring ESCAPES, a list of escaped
 ;; indices in reverse order. Returns a new list of escapes.
-(defun normalize-read-buffer (escapes)
+(defun normalize-read-buffer (escapes &optional colon)
   (unless (readtable-normalization *readtable*)
-    (return-from normalize-read-buffer escapes))
+    (return-from normalize-read-buffer (values escapes colon)))
   (let ((current-buffer (copy-token-buf-string))
         (old-escapes (nreverse escapes))
         new-escapes (str-to-normalize (make-string (token-buf-fill-ptr *read-buffer*)))
-        (normalize-ptr 0))
+        (normalize-ptr 0) new-colon)
     (reset-read-buffer)
     (macrolet ((clear-str-to-normalize ()
                `(progn
@@ -1052,9 +1048,12 @@ standard Lisp readtable when NIL."
                  (push (token-buf-fill-ptr *read-buffer*) new-escapes)
                  (pop old-escapes)
                  (ouch-read-buffer c))
-               (push-to-normalize c)))
+               (progn
+                 (push-to-normalize c)
+                 (when (and (not new-colon) (eql c #\:))
+                   (setf new-colon i)))))
       (clear-str-to-normalize)
-      new-escapes)))
+      (values new-escapes new-colon))))
 
 ;;; Modify the read buffer according to READTABLE-CASE, ignoring
 ;;; ESCAPES. ESCAPES is a list of the escaped indices, in reverse
