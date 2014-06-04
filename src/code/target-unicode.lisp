@@ -685,14 +685,27 @@ disappears when accents are placed on top of it. and NIL otherwise"
     (setf result (nreverse result))
     (coerce result 'string)))
 
+(declaim (type function sb!unix::posix-getenv))
+(defun get-user-locale ()
+  (let ((raw-locale
+         #!+(or win32 unix) (sb!unix::posix-getenv "LANG")
+         #!-(or win32 unix) nil))
+    (when raw-locale
+      (let ((lang-code (string-upcase
+                        (subseq raw-locale 0 (position #\_ raw-locale)))))
+        (when lang-code
+          (intern lang-code "KEYWORD"))))))
+
+
 (defun uppercase (string &key locale)
   #!+sb-doc
   "Returns the full uppercase of STRING according to the Unicode standard.
 The result is not guaranteed to have the same length as the input. If :LOCALE
 is NIL, no language-specific case transformations are applied. If :LOCALE is a
 keyword representing a two-letter ISO country code, the case transforms of that
-locale are used. If :LOCALE is T, the user's current locale is used (not
-currently supported)."
+locale are used. If :LOCALE is T, the user's current locale is used (Unix and
+Win32 only)."
+  (when (eq locale t) (setf locale (get-user-locale)))
   (string-somethingcase
    #'char-uppercase string
    #'(lambda (char index len)
@@ -717,6 +730,7 @@ currently supported)."
   "Returns the full lowercase of STRING according to the Unicode standard.
 The result is not guaranteed to have the same length as the input.
 :LOCALE has the same semantics as the :LOCALE argument to UPPERCASE."
+  (when (eq locale t) (setf locale (get-user-locale)))
   (string-somethingcase
    #'char-lowercase string
    #'(lambda (char index len)
@@ -783,6 +797,7 @@ The result is not guaranteed to have the same length as the input.
   "Returns the titlecase of STRING. The resulting string can
 be longer than the input.
 :LOCALE has the same semantics as the :LOCALE argument to UPPERCASE."
+  (when (eq locale t) (setf locale (get-user-locale)))
   (let ((words (words string))
         (cased nil))
    (loop for word in words
