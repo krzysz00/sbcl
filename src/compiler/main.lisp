@@ -298,20 +298,11 @@ Examples:
                     #+sb-xc-host nil
                     (ecase kind
                       (:function
-                       (case name
-                         ((declare)
-                          (compiler-warn
-                           "~@<There is no function named ~S. References to ~S ~
-                            in some contexts (like starts of blocks) have ~
-                            special meaning, but here it would have to be a ~
-                            function, and that shouldn't be right.~:@>" name
-                            name))
-                         (t
-                          (compiler-warn
-                           "~@<The function ~S is undefined, and its name is ~
+                       (compiler-warn
+                        "~@<The function ~S is undefined, and its name is ~
                             reserved by ANSI CL so that even if it were ~
                             defined later, the code doing so would not be ~
-                            portable.~:@>" name))))
+                            portable.~:@>" name))
                       (:type
                        (if (and (consp name) (eq 'quote (car name)))
                            (compiler-warn
@@ -606,7 +597,7 @@ necessary, since type inference may take arbitrarily long to converge.")
             (describe-ir2-component component *compiler-trace-output*))
 
           (maybe-mumble "code ")
-          (multiple-value-bind (code-length trace-table fixup-notes)
+          (multiple-value-bind (code-length fixup-notes)
               (generate-code component)
 
             #-sb-xc-host
@@ -622,7 +613,6 @@ necessary, since type inference may take arbitrarily long to converge.")
                (fasl-dump-component component
                                     *code-segment*
                                     code-length
-                                    trace-table
                                     fixup-notes
                                     *compile-object*))
               (core-object
@@ -630,7 +620,6 @@ necessary, since type inference may take arbitrarily long to converge.")
                (make-core-component component
                                     *code-segment*
                                     code-length
-                                    trace-table
                                     fixup-notes
                                     *compile-object*))
               (null))))))

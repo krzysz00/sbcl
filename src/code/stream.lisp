@@ -362,7 +362,7 @@
         (let ((char (stream-read-char stream)))
           (if (eq char :eof)
               (eof-or-lose stream eof-error-p eof-value)
-              char)))))
+              (the character char))))))
 
 #!-sb-fluid (declaim (inline ansi-stream-unread-char))
 (defun ansi-stream-unread-char (character stream)
@@ -421,7 +421,7 @@
         (let ((char (stream-read-char-no-hang stream)))
           (if (eq char :eof)
               (eof-or-lose stream eof-error-p eof-value)
-              char)))))
+              (the (or character null) char))))))
 
 #!-sb-fluid (declaim (inline ansi-stream-clear-input))
 (defun ansi-stream-clear-input (stream)
@@ -449,10 +449,10 @@
   (if (ansi-stream-p stream)
       (ansi-stream-read-byte stream eof-error-p eof-value nil)
       ;; must be Gray streams FUNDAMENTAL-STREAM
-      (let ((char (stream-read-byte stream)))
-        (if (eq char :eof)
+      (let ((byte (stream-read-byte stream)))
+        (if (eq byte :eof)
             (eof-or-lose stream eof-error-p eof-value)
-            char))))
+            (the integer byte)))))
 
 ;;; Read NUMBYTES bytes into BUFFER beginning at START, and return the
 ;;; number of bytes read.
@@ -1271,10 +1271,6 @@
 
 (defparameter *string-output-stream-buffer-initial-size* 64)
 
-#!-sb-fluid
-(declaim (inline string-output-string-stream-buffer
-                 string-output-string-stream-pointer
-                 string-output-string-stream-index))
 (defstruct (string-output-stream
             (:include ansi-stream
                       (out #'string-ouch)
@@ -1569,7 +1565,7 @@ benefit of the function GET-OUTPUT-STREAM-STRING.")
 
 ;;; FIXME: need to support (VECTOR NIL), ideally without destroying all hope
 ;;; of efficiency.
-(declaim (inline vector-with-fill-pointer))
+(declaim (inline vector-with-fill-pointer-p))
 (defun vector-with-fill-pointer-p (x)
   (and (vectorp x)
        (array-has-fill-pointer-p x)))

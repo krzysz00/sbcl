@@ -1345,6 +1345,9 @@ core and return a descriptor to it."
                                            sb!vm:word-shift)))
     (cold-set 'sb!vm::*tls-index-lock* (make-fixnum-descriptor 0)))
 
+  (dolist (symbol sb!impl::*cache-vector-symbols*)
+    (cold-set symbol *nil-descriptor*))
+
   (/show "dumping packages" (mapcar #'car *cold-package-symbols*))
   (let ((initial-symbols *nil-descriptor*))
     (dolist (cold-package-symbols-entry *cold-package-symbols*)
@@ -2543,7 +2546,7 @@ core and return a descriptor to it."
   `(define-cold-fop (,name)
      (let* ((nconst ,nconst)
             (code-size ,code-size)
-            (raw-header-n-words (+ sb!vm:code-trace-table-offset-slot nconst))
+            (raw-header-n-words (+ sb!vm:code-constants-offset nconst))
             (header-n-words
              ;; Note: we round the number of constants up to ensure
              ;; that the code vector will be properly aligned.
@@ -2558,9 +2561,7 @@ core and return a descriptor to it."
                       header-n-words sb!vm:code-header-widetag))
        (write-wordindexed des
                           sb!vm:code-code-size-slot
-                          (make-fixnum-descriptor
-                           (ash (+ code-size (1- (ash 1 sb!vm:word-shift)))
-                                (- sb!vm:word-shift))))
+                          (make-fixnum-descriptor code-size))
        (write-wordindexed des sb!vm:code-entry-points-slot *nil-descriptor*)
        (write-wordindexed des sb!vm:code-debug-info-slot (pop-stack))
        (when (oddp raw-header-n-words)
@@ -2568,7 +2569,7 @@ core and return a descriptor to it."
                             raw-header-n-words
                             (make-random-descriptor 0)))
        (do ((index (1- raw-header-n-words) (1- index)))
-           ((< index sb!vm:code-trace-table-offset-slot))
+           ((< index sb!vm:code-constants-offset))
          (write-wordindexed des index (pop-stack)))
        (let* ((start (+ (descriptor-byte-offset des)
                         (ash header-n-words sb!vm:word-shift)))
@@ -2726,9 +2727,7 @@ core and return a descriptor to it."
                    header-n-words sb!vm:code-header-widetag))
     (write-wordindexed des
                        sb!vm:code-code-size-slot
-                       (make-fixnum-descriptor
-                        (ash (+ length (1- (ash 1 sb!vm:word-shift)))
-                             (- sb!vm:word-shift))))
+                       (make-fixnum-descriptor length))
     (write-wordindexed des sb!vm:code-entry-points-slot *nil-descriptor*)
     (write-wordindexed des sb!vm:code-debug-info-slot *nil-descriptor*)
 

@@ -248,8 +248,8 @@
                              ',result-type-value))
                    (t (bug "impossible (?) sequence type"))))
             (t
-             (let* ((seqs (cons seq seqs))
-                    (seq-args (make-gensym-list (length seqs))))
+             (let* ((all-seqs (cons seq seqs))
+                    (seq-args (make-gensym-list (length all-seqs))))
                (multiple-value-bind (push-dacc result)
                    (ecase result-supertype
                      (null (values nil nil))
@@ -263,17 +263,24 @@
                  ;; FUNCALL and ALIEN-FUNCALL, and for the same
                  ;; reason: we need to get the runtime values of each
                  ;; of the &REST vars.)
-                 `(lambda (result-type fun ,@seq-args)
-                    (declare (ignore result-type))
-                    (let ((fun (%coerce-callable-to-fun fun))
-                          (acc nil))
-                      (declare (type list acc))
-                      (declare (ignorable acc))
-                      ,(build-sequence-iterator
-                        seqs seq-args
-                        :result result
-                        :body push-dacc
-                        :fast (policy node (> speed space))))))))))))
+                 (block nil
+                   (let ((gave-up
+                           (catch 'give-up-ir1-transform
+                             (return
+                               `(lambda (result-type fun ,@seq-args)
+                                  (declare (ignore result-type))
+                                  (let ((fun (%coerce-callable-to-fun fun))
+                                        (acc nil))
+                                    (declare (type list acc))
+                                    (declare (ignorable acc))
+                                    ,(build-sequence-iterator
+                                      all-seqs seq-args
+                                      :result result
+                                      :body push-dacc
+                                      :fast (policy node (> speed space)))))))))
+                     (if (and (null result-type-value) (null seqs))
+                         '(%map-for-effect-arity-1 fun seq)
+                         (throw 'give-up-ir1-transform gave-up)))))))))))
 
 ;;; MAP-INTO
 (deftransform map-into ((result fun &rest seqs)
@@ -763,6 +770,39 @@
   (def string<=* t t)
   (def string>* nil nil)
   (def string>=* nil t))
+
+(deftransform string=* ((string1 string2 start1 end1 start2 end2)
+                        (string string
+                                (constant-arg (eql 0))
+                                (constant-arg null)
+                                (constant-arg (eql 0))
+                                (constant-arg null)))
+  (cond ((and (constant-lvar-p string1)
+              (equal (lvar-value string1) ""))
+         `(zerop (length string2)))
+        ((and (constant-lvar-p string2)
+              (equal (lvar-value string2) ""))
+         `(zerop (length string1)))
+        (t
+         (give-up-ir1-transform))))
+
+(deftransform string/=* ((string1 string2 start1 end1 start2 end2)
+                         (string string
+                                 (constant-arg (eql 0))
+                                 (constant-arg null)
+                                 (constant-arg (eql 0))
+                                 (constant-arg null)))
+  (cond ((and (constant-lvar-p string1)
+              (equal (lvar-value string1) ""))
+         (lvar-type string2)
+         `(and (plusp (length string2))
+               0))
+        ((and (constant-lvar-p string2)
+              (equal (lvar-value string2) ""))
+         `(and (plusp (length string1))
+               0))
+        (t
+         (give-up-ir1-transform))))
 
 (macrolet ((def (name result-fun)
              `(deftransform ,name ((string1 string2 start1 end1 start2 end2)
