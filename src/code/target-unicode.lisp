@@ -872,16 +872,23 @@ The result is not guaranteed to have the same length as the input."
             (not (ord-member cp not-spacing-mark))) :spacing-mark)
       (t (hangul-syllable-type char)))))
 
-(defun graphemes (string)
+(defun graphemes (string &key as-vector)
   #!+sb-doc
   "Breaks STRING into graphemes acording to the default
-grapheme breaking rules specified in UAX #29, returning a list of strings."
-  (let* ((chars (coerce string 'list)) clusters (cluster (list (car chars))))
+grapheme breaking rules specified in UAX #29, returning a list of strings.
+If :AS-VECTOR is specified, returns a vector of strings instead."
+  (let* ((chars (coerce string 'list))
+         (clusters (when as-vector
+                     (make-array (length string) :element-type 'string
+                                                 :fill-pointer 0)))
+         (cluster (list (car chars))))
     (do ((first (car chars) second)
          (tail (cdr chars) (when tail (cdr tail)))
          (second (cadr chars) (when tail (cadr tail))))
-        ((not first) (nreverse (mapcar #'(lambda (l) (coerce l 'string)) clusters)))
-      (flet ((brk () (push (nreverse cluster) clusters) (setf cluster (list second)))
+        ((not first) (if as-vector clusters (nreverse clusters)))
+      (flet ((brk () (let ((e (coerce (nreverse cluster) 'string)))
+                       (if as-vector (vector-push e clusters) (push e clusters)))
+               (setf cluster (list second)))
              (nobrk () (push second cluster)))
         (let ((c1 (grapheme-break-class first))
               (c2 (grapheme-break-class second)))
@@ -1584,3 +1591,15 @@ according to the IDNA confusableSummary.txt table"
          (setf best-set nil new-i nil))
     (mapcar #'(lambda (strs) (apply #'concatenate 'string strs))
             (flatten-all-ways (nreverse ret)))))
+
+
+;;; Unicode strings
+(defun string->uni-string (string)
+  (grapmeses string :as-vector t))
+
+(defun uni-string->string (uni-string)
+  (let ((ret (make-array (length uni-string) :element-type 'character
+                         :adjustable t :fill-pointer 0)))
+    (loop for cluster in uni-string do
+         (loop for char in cluster do (vector-push-extend char ret)))
+    (coerce ret 'string)))
