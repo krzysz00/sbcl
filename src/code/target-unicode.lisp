@@ -1595,7 +1595,7 @@ according to the IDNA confusableSummary.txt table"
 
 ;;; Unicode strings
 (defun string->uni-string (string)
-  (grapmeses string :as-vector t))
+  (graphemes (normalize-string string) :as-vector t))
 
 (defun uni-string->string (uni-string)
   (let ((ret (make-array (length uni-string) :element-type 'character
