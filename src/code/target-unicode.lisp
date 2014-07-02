@@ -1591,15 +1591,3 @@ according to the IDNA confusableSummary.txt table"
          (setf best-set nil new-i nil))
     (mapcar #'(lambda (strs) (apply #'concatenate 'string strs))
             (flatten-all-ways (nreverse ret)))))
-
-
-;;; Unicode strings
-(defun string->uni-string (string)
-  (graphemes (normalize-string string) :as-vector t))
-
-(defun uni-string->string (uni-string)
-  (let ((ret (make-array (length uni-string) :element-type 'character
-                         :adjustable t :fill-pointer 0)))
-    (loop for cluster in uni-string do
-         (loop for char in cluster do (vector-push-extend char ret)))
-    (coerce ret 'string)))
