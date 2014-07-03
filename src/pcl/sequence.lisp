@@ -709,11 +709,11 @@
                                start2 end2 test test-not key))
 (defmethod sequence:mismatch
     ((sequence1 sequence) (sequence2 sequence) &key from-end (start1 0) end1
-     (start2 0) end2 test test-not key)
+     (start2 0) end2 (test nil test-p) test-not key)
   (let ((test (sequence:canonize-test sequence1 test test-not))
         (key (sequence:canonize-key key)))
-    (when (eql test #'eql)
-      (setf test (sequence:canonize-test sequence2 test test-not)))
+    (when (and (eql test #'eql) (not test-p))
+      (setf test (sequence:canonize-test sequence2 nil test-not)))
     (sequence:with-sequence-iterator (state1 limit1 from-end1 step1 endp1 elt1)
         (sequence1 :start start1 :end end1 :from-end from-end)
       (sequence:with-sequence-iterator (state2 limit2 from-end2 step2 endp2 elt2)
@@ -748,14 +748,14 @@
                              start2 end2 test test-not key))
 (defmethod sequence:search
     ((sequence1 sequence) (sequence2 sequence) &key from-end (start1 0) end1
-     (start2 0) end2 test test-not key)
+     (start2 0) end2 (test nil test-p) test-not key)
   (let* ((test (sequence:canonize-test sequence1 test test-not))
          (key (sequence:canonize-key key))
          (range1 (- (or end1 (length sequence1)) start1))
          (range2 (- (or end2 (length sequence2)) start2))
          (count (1+ (- range2 range1))))
-    (when (eql test #'eql)
-      (setf test (sequence:canonize-test sequence2 test test-not)))
+    (when (and (eql test #'eql) (not test-p))
+      (setf test (sequence:canonize-test sequence2 nil test-not)))
     (when (minusp count)
       (return-from sequence:search nil))
     ;; Create an iteration state for SEQUENCE1 for the interesting
