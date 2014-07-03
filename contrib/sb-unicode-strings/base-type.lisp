@@ -1,7 +1,8 @@
 (in-package #:sb-unicode-strings)
 
-(defclass unicode-string (sequence)
-  ((vector :initarg :vector :accessor %vector)))
+;;; Class definition
+(defclass unicode-string (sequence standard-object)
+  ((%vector :initarg :vector :accessor %vector)))
 
 (defun string->unicode-string (string)
   (make-instance
@@ -11,10 +12,12 @@
 (defun unicode-string->string (uni-string)
   (let ((ret (make-array (length uni-string) :element-type 'character
                          :adjustable t :fill-pointer 0)))
-    (loop for cluster in (%vector uni-string) do
-         (loop for char in cluster do (vector-push-extend char ret)))
+    (loop for cluster across (%vector uni-string) do
+         (loop for char across cluster do (vector-push-extend char ret)))
     (coerce ret 'string)))
 
+
+;;; Sequence protocal
 (defmethod sb-sequence:length ((str unicode-string))
   (sb-sequence:length (%vector str)))
 
@@ -22,10 +25,12 @@
   (aref (%vector str) index))
 
 (defmethod (setf sb-sequence:elt) ((new-value character) (str unicode-string) index)
-  (setf (aref (%vector str) index) (coerce (list new-value) 'string)))
+  (setf (aref (%vector str) index) (normalize-string (coerce (list new-value) 'string))))
 
 (defmethod (setf sb-sequence:elt) ((new-value string) (str unicode-string) index)
-  (setf (aref (%vector str) index) new-value))
+  (let ((value (graphemes (normalize-string new-value))))
+    (when (cdr value) (error "New value ~s contains more than one grapheme" new-value))
+    (setf (aref (%vector str) index) (car value))))
 
 (defmethod (setf sb-sequence:elt) (new-value (str unicode-string) index)
   (error 'type-error :expected-type '(or string character) :datum new-value))
@@ -43,5 +48,31 @@
    :vector
    (apply #'sb-sequence:make-sequence-like (%vector str) length args)))
 
+(defmethod sb-sequence:canonize-test ((s unicode-string) test test-not)
+  (declare (ignore s))
+  (cond
+    (test (if (functionp test) test (fdefinition test)))
+    (test-not (if (functionp test-not)
+                  (complement test-not)
+                  (complement (fdefinition test-not))))
+    (t #'(lambda (x y)
+           (when (characterp x) (setf x (coerce (list x) 'string)))
+           (when (characterp y) (setf y (coerce (list y) 'string)))
+           (string= x y)))))
+
+
+;;; Input and output
 (defmethod print-object ((object unicode-string) stream)
-  (print (%vector object) stream))
+  (format stream "#U~s" (unicode-string->string object)))
+
+(defun unicode-string-reader (stream subchar arg)
+  (declare (ignore subchar arg))
+  (let ((string (read stream t t t)))
+    (string->unicode-string string)))
+
+(defun enable-unicode-string-syntax (readtable)
+  (set-dispatch-macro-character #\# #\U #'unicode-string-reader readtable))
+(enable-unicode-string-syntax *readtable*)
+
+(defmethod make-load-form ((self unicode-string) &optional environment)
+  (make-load-form-saving-slots self :environment environment))

@@ -15,6 +15,14 @@
   (provide 'sb-unicode-strings))
 
 (defmethod perform ((o test-op) (c (eql (find-system :sb-unicode-strings))))
-  t)
-  ;; (operate 'load-op 'sb-unicode-strihgs-tests)
-  ;;(operate 'test-op 'sb-unicode-strings-tests))
+  (operate 'load-op 'sb-unicode-strings-tests)
+  (operate 'test-op 'sb-unicode-strings-tests))
+
+(defsystem sb-unicode-strings-tests
+  :depends-on (sb-unicode-strings sb-rt)
+  :version "0.0.1"
+  :components ((:file "tests")))
+
+(defmethod perform ((o test-op) (c (eql (find-system :sb-unicode-strings-tests))))
+  (or (funcall (intern "DO-TESTS" (find-package "SB-RT")))
+      (error "test-op failed")))

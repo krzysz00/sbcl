@@ -3,4 +3,5 @@
   (:export
    #:string->unicode-string
    #:unicode-string->string
-   #:unicode-string))
+   #:unicode-string
+   #:enable-unicode-string-syntax))

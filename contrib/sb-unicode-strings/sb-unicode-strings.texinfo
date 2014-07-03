@@ -1,0 +1,8 @@
+@node sb-unicode-strings
+@section sb-unicode-strings
+These are still in development. More documentation to follow.
+To make a Unicode string, either use @code{#U''example''} or
+@code{sb-unicode-strings:string->unicode-string}.
+Unicode strings currently only implement the sequence protocol.
+The elements of a Unicode string are Common Lisp strings, each of which contains one grapheme cluster.
+However, most sequence functions will silently upgrade characters to singleton strings (unless you supply your own @code{test} or @code{test-not} functions).
