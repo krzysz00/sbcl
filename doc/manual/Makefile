@@ -17,12 +17,13 @@ CONTRIB_OBJ_DIR="../../obj/asdf-cache/"
 I_FLAGS=-I $(DOCSTRINGDIR) -I $(CONTRIB_SRC_DIR)
 # List of contrib modules that docstring docs will be created for.
 MODULES=':sb-md5 :sb-queue :sb-concurrency :sb-rotate-byte :sb-grovel \
-         :sb-sprof :sb-bsd-sockets :sb-cover :sb-posix'
+         :sb-sprof :sb-bsd-sockets :sb-cover :sb-posix :sb-unicode-strings'
 # List of package names that docstring docs will be created for.
 PACKAGES=":COMMON-LISP :SB-ALIEN :SB-DEBUG :SB-EXT :SB-GRAY :SB-MOP \
           :SB-PCL :SB-SYS :SB-SEQUENCE :SB-UNICODE \
           :SB-PROFILE :SB-THREAD :SB-MD5 :SB-QUEUE :SB-ROTATE-BYTE  \
-          :SB-SPROF :SB-BSD-SOCKETS :SB-COVER :SB-POSIX :SB-CONCURRENCY"
+          :SB-SPROF :SB-BSD-SOCKETS :SB-COVER :SB-POSIX :SB-CONCURRENCY\
+          :SB-UNICODE-STRINGS"
 
 # SBCL_SYSTEM is an optional argument to this make program. If this
 # variable is set, its contents are used as the command line for

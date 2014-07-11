@@ -17,6 +17,7 @@ contributed modules.
 * sb-posix::
 * sb-queue::
 * sb-rotate-byte::
+* sb-unicode-strings::
 @end menu
 
 @page
@@ -43,4 +44,5 @@ contributed modules.
 @page
 @include sb-rotate-byte/sb-rotate-byte.texinfo
 
-
+@page
+@include sb-unicode-strings/sb-unicode-strings.texinfo

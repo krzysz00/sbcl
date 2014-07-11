@@ -1,8 +1,38 @@
 @node sb-unicode-strings
 @section sb-unicode-strings
-These are still in development. More documentation to follow.
-To make a Unicode string, either use @code{#U''example''} or
-@code{sb-unicode-strings:string->unicode-string}.
-Unicode strings currently only implement the sequence protocol.
-The elements of a Unicode string are Common Lisp strings, each of which contains one grapheme cluster.
-However, most sequence functions will silently upgrade characters to singleton strings (unless you supply your own @code{test} or @code{test-not} functions).
+The @code{sb-unicode-strings} contrib module provides ``Unicode
+strings'', which represent text as a sequence of Common Lisp strings,
+each of which contains one grapheme cluster, as defined by the Unicode
+standard. Grapheme clusters roughly correspond to what a user would
+perceive as a character/letter, and can consist of more than one
+codepoint.
+
+To construct a Unicode string, use the @code{#U''text''} syntax,
+which is enabled in the current readtable when @code{sb-unicode} is
+imported, or can be manually enabled using
+@include fun-sb-unicode-strings-enable-unicode-string-syntax.texinfo
+Alternatively, you can use
+@include fun-sb-unicode-strings-string-gt-unicode-string.texinfo
+to create a Unicode string from a Common Lisp string and
+@include fun-sb-unicode-strings-unicode-string-gt-string.texinfo
+to convert a Unicode string to a Common Lisp string.
+
+Note that @code{(string= x (unicode-string->string (string->unicode-string x)))}
+is not necessarily true for all strings, since Unicode strings are
+normalized to Normalization Form D upon creation.
+
+The @code{unicode-string} type implements the sequence protocol, which
+means that standard sequence functions such as @code{elt} and
+@code{position} will function on Unicode strings. However, since the
+elements of a Unicode string are Common Lisp function, the default
+function used when a @code{:test} argument is not specified (when
+applicable) is not @code{eql}. Instead, the default @code{:test} first
+converts any characters passed to it into single-element strings, then
+uses @code{string=} as its test. Because of this,
+@lisp
+(= (count #\a #U''abc'') (count ``a'' #U''abc'') 1)
+@end lisp
+is true. However, when the sequence of characters
+@code{#(#\a #\COMBINING_DOT_ABOVE #\b #\c)} is converted to a Unicode
+string @code{str}, @code{(count #\a str)} will be zero, unlike in a
+Common Lisp string, where it will be 1.

@@ -5,11 +5,13 @@
   ((%vector :initarg :vector :accessor %vector)))
 
 (defun string->unicode-string (string)
+  "Converts STRING to a Unicode string"
   (make-instance
    'unicode-string
    :vector (graphemes (normalize-string string) :as-vector t)))
 
 (defun unicode-string->string (uni-string)
+  "Converts UNI-STRING to a ANSI Common LIsp string"
   (let ((ret (make-array (length uni-string) :element-type 'character
                          :adjustable t :fill-pointer 0)))
     (loop for cluster across (%vector uni-string) do
@@ -58,7 +60,7 @@
     (t #'(lambda (x y)
            (when (characterp x) (setf x (coerce (list x) 'string)))
            (when (characterp y) (setf y (coerce (list y) 'string)))
-           (string= x y)))))
+           (string= (normalize-string x) (normalize-string y))))))
 
 
 ;;; Input and output
@@ -71,6 +73,7 @@
     (string->unicode-string string)))
 
 (defun enable-unicode-string-syntax (readtable)
+  "Adds the #U\"string\" syntax to READTABLE"
   (set-dispatch-macro-character #\# #\U #'unicode-string-reader readtable))
 (enable-unicode-string-syntax *readtable*)
 

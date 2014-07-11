@@ -14,7 +14,8 @@
    (= (count #\a #U"abc") 1)
    (= (count #\a #U"àbc") 0)
    (= (count "a" #U"abc") 1)
-   (= (count "à" #U"àbc") 1))
+   (= (count "à" #U"àbc") 1)
+   (= (count "à" #U"àbc") 1))
   t)
 
 (deftest string-length (length (string->unicode-string "noël")) 4)
