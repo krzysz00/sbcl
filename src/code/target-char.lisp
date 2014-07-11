@@ -40,7 +40,9 @@
 
 (macrolet
     ((frob ()
-       (flet ((file (name type)
+       (flet ((coerce-it (array)
+                (!coerce-to-specialized array '(unsigned-byte 8)))
+              (file (name type)
                 (merge-pathnames (make-pathname
                                   :directory
                                   '(:relative :up :up "output")
@@ -69,14 +71,14 @@
               (declaim (type (simple-array (unsigned-byte 8) (*))
                               **character-misc-database**))
               ;; KLUDGE: All temporary values, fixed up in cold-load
-              (defglobal **character-misc-database** ,misc-database)
-              (defglobal **character-high-pages** ,ucd-high-pages)
-              (defglobal **character-low-pages** ,ucd-low-pages)
-              (defglobal **character-decompositions** ,decompositions)
+              (defglobal **character-misc-database** ,(coerce-it misc-database))
+              (defglobal **character-high-pages** ,(coerce-it ucd-high-pages))
+              (defglobal **character-low-pages** ,(coerce-it ucd-low-pages))
+              (defglobal **character-decompositions** ,(coerce-it decompositions))
               (defglobal **character-case-pages** ',case-pages)
-              (defglobal **character-primary-compositions** ,primary-compositions)
-              (defglobal **character-cases** ,case-data)
-              (defglobal **character-collations** ,collations)
+              (defglobal **character-primary-compositions** ,(coerce-it primary-compositions))
+              (defglobal **character-cases** ,(coerce-it case-data))
+              (defglobal **character-collations** ,(coerce-it collations))
 
               (defun !character-database-cold-init ()
                 (flet ((make-ubn-vector (raw-bytes n)

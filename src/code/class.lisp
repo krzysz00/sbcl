@@ -708,6 +708,7 @@
   (classoid nil :type (or classoid null))
   ;; PCL class, if any
   (pcl-class nil))
+(declaim (freeze-type classoid-cell))
 
 (defun find-classoid-cell (name &key create)
   (let ((real-name (uncross name)))
@@ -900,6 +901,7 @@
       (return-from %ensure-both-classoids-valid nil))))
 
 (defun update-object-layout-or-invalid (object layout)
+  ;; FIXME: explain why this isn't (LAYOUT-FOR-STD-CLASS-P LAYOUT).
   (if (layout-for-std-class-p (layout-of object))
       (sb!pcl::check-wrapper-validity object)
       (sb!c::%layout-invalid-error object layout)))
