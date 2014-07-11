@@ -470,12 +470,12 @@
 (defknown copy-seq (sequence) consed-sequence (flushable)
   :derive-type (sequence-result-nth-arg 1))
 
-(defknown length (sequence) index (foldable flushable dx-safe))
+(defknown length (sequence) index (explicit-check foldable flushable dx-safe))
 
-(defknown reverse (sequence) consed-sequence (flushable)
+(defknown reverse (sequence) consed-sequence (explicit-check flushable)
   :derive-type (sequence-result-nth-arg 1))
 
-(defknown nreverse (sequence) sequence (important-result)
+(defknown nreverse (sequence) sequence (explicit-check important-result)
   :derive-type #'result-type-first-arg
   :destroyed-constant-args (nth-constant-nonempty-sequence-args 1))
 
@@ -1785,5 +1785,9 @@
     ())
 (defknown %compare-and-swap-symbol-value (symbol t t) t
     (unwind))
+(defknown (%atomic-dec-symbol-global-value %atomic-inc-symbol-global-value)
+    (symbol fixnum) fixnum)
+(defknown (%atomic-dec-car %atomic-inc-car %atomic-dec-cdr %atomic-inc-cdr)
+    (cons fixnum) fixnum)
 (defknown spin-loop-hint () (values)
     (always-translatable))

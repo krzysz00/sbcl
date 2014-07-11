@@ -324,11 +324,14 @@
 ;;; Clear the information of the specified TYPE and CLASS for NAME in
 ;;; the current environment. Return true if there was any info.
 (defun clear-info (class type name)
-  (let ((info (type-info-or-lose class type)))
-    (clear-info-value name (type-info-number info))))
+  (let* ((info (type-info-or-lose class type))
+         (type-number-list (list (type-info-number info))))
+    (declare (dynamic-extent type-number-list))
+    (clear-info-values name type-number-list)))
 
-(defun clear-info-value (name type)
-  (declare (type type-number type))
+(defun clear-info-values (name type-numbers)
+  (dolist (type type-numbers)
+    (aver (and (typep type 'type-number) (svref *info-types* type))))
   ;; A call to UNCROSS was suspiciously absent, so I added this ERROR
   ;; to be certain that it's not supposed to happen when building the xc.
   #+sb-xc-xhost (error "Strange CLEAR-INFO building the xc: ~S ~S" name type)
@@ -338,7 +341,7 @@
       ;; If PACKED-INFO-REMOVE has nothing to do, it returns NIL,
       ;; corresponding to the input that UPDATE-SYMBOL-INFO expects.
       (dx-flet ((clear-simple (old)
-                  (setq new (packed-info-remove old key2 type))))
+                  (setq new (packed-info-remove old key2 type-numbers))))
         (update-symbol-info key1 #'clear-simple))
       :hairy
       ;; The global hashtable is not imbued with knowledge of the convention
@@ -351,7 +354,7 @@
                   (if old
                       ;; if -REMOVE => nil, then update NEW but return OLD
                       (or (setq new (packed-info-remove
-                                     old +no-auxilliary-key+ type))
+                                     old +no-auxilliary-key+ type-numbers))
                           old))))
         (info-puthash *info-environment* name #'clear-hairy)))
     (not (null new))))
@@ -415,8 +418,7 @@
 ;; with it, passing the function the Name as its only argument.
 ;;
 (defun call-with-each-globaldb-name (function)
-  (let ((name (list nil nil)) ; preallocate just one, and mutate as we go
-        (function (%coerce-callable-to-fun function)))
+  (let ((function (%coerce-callable-to-fun function)))
     (dolist (package (list-all-packages))
       (do-symbols (symbol package)
         (when (eq (symbol-package symbol) package)
@@ -427,9 +429,9 @@
                 (funcall function symbol))
               ;; Now deal with (<othersym> SYMBOL) names
               (do-packed-info-vector-aux-key (vector key-index)
-                (progn (setf (first name) (svref vector key-index)
-                             (second name) symbol)
-                       (funcall function name))))))))
+                (funcall function
+                         (construct-globaldb-name (svref vector key-index)
+                                                  symbol))))))))
     (info-maphash (lambda (name data)
                     (declare (ignore data))
                     (funcall function name))
@@ -753,11 +755,10 @@
        (unless (eq name prev)
          (format t "~&~S" (setq prev name)))
        (let ((type (svref *info-types* type-num)))
-         (format t "~&  ~@[type ~D~]~@[~{~S ~S~}~] ~S = "
+         (format t "~&  ~@[type ~D~]~@[~{~S ~S~}~] = "
                  (if (not type) type-num)
                  (if type
-                     (list (type-info-class type) (type-info-name type)))
-                 name)
+                     (list (type-info-class type) (type-info-name type))))
          (write val :level 1)))
      sym)))
 
@@ -850,6 +851,6 @@
 
   (def clear-info (class type name)
     (let ((info (type-info-or-lose class type)))
-      `(clear-info-value ,name ,(type-info-number info)))))
+      `(clear-info-values ,name '(,(type-info-number info))))))
 
 (!defun-from-collected-cold-init-forms !globaldb-cold-init)

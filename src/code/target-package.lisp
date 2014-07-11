@@ -324,11 +324,8 @@ error if any of PACKAGES is not a valid package designator."
 
 (def!method print-object ((package package) stream)
   (let ((name (package-%name package)))
-    (if name
-        (print-unreadable-object (package stream :type t)
-          (prin1 name stream))
-        (print-unreadable-object (package stream :type t :identity t)
-          (write-string "(deleted)" stream)))))
+    (print-unreadable-object (package stream :type t :identity (not name))
+      (if name (prin1 name stream) (write-string "(deleted)" stream)))))
 
 ;;; ANSI says (in the definition of DELETE-PACKAGE) that these, and
 ;;; most other operations, are unspecified for deleted packages. We
@@ -928,7 +925,7 @@ implementation it is ~S." *default-package-use-list*)
                           ;; for tidiness and to help the GC.
                           (package-%nicknames package) nil))
                   (setf (package-%use-list package) nil
-                        (package-tables package) nil
+                        (package-tables package) #()
                         (package-%shadowing-symbols package) nil
                         (package-internal-symbols package)
                         (make-or-remake-package-hashtable 0)
@@ -947,34 +944,48 @@ implementation it is ~S." *default-package-use-list*)
                names))
     res))
 
-(defun intern (name &optional (package (sane-package)))
+(macrolet ((find/intern (function)
+             ;; Both FIND-SYMBOL* and INTERN* require a SIMPLE-STRING,
+             ;; but accept a LENGTH. Given a non-simple string,
+             ;; we need copy it only if the cumulative displacement
+             ;; into the underlying simple-string is nonzero.
+             ;; There are two things that can be improved
+             ;; about the generated code here:
+             ;; 1. if X is known to satisfy STRINGP (generally any rank-1 array),
+             ;;    then testing SIMPLE-<base|character>-STRING-P should not
+             ;;    re-test the lowtag. This is constrained by the backends,
+             ;;    because there are no type vops that assume a known lowtag.
+             ;; 2. if X is known to satisfy VECTORP, then
+             ;;    (NOT (ARRAY-HEADER-P)) implies SIMPLE-P, but the compiler
+             ;;    does not actually know that, and generates a check.
+             ;;    This is more of a front-end issue.
+             `(multiple-value-bind (name length)
+                  (if (simple-string-p name)
+                      (values name (length name))
+                      (with-array-data ((name name) (start) (end)
+                                        :check-fill-pointer t)
+                        (if (eql start 0)
+                            (values name end)
+                            (values (subseq name start end)
+                                    (- end start)))))
+                (truly-the
+                 (values symbol (member :internal :external :inherited nil))
+                 (,function name length
+                            (find-undeleted-package-or-lose package))))))
+
+  (defun intern (name &optional (package (sane-package)))
   #!+sb-doc
   "Return a symbol in PACKAGE having the specified NAME, creating it
   if necessary."
-  ;; We just simple-stringify the name and call INTERN*, where the real
-  ;; logic is.
-  (let ((name (if (simple-string-p name)
-                  name
-                  (coerce name 'simple-string)))
-        (package (find-undeleted-package-or-lose package)))
-    (declare (simple-string name))
-      (intern* name
-               (length name)
-               package)))
+    (find/intern intern*))
 
-(defun find-symbol (name &optional (package (sane-package)))
+  (defun find-symbol (name &optional (package (sane-package)))
   #!+sb-doc
   "Return the symbol named STRING in PACKAGE. If such a symbol is found
   then the second value is :INTERNAL, :EXTERNAL or :INHERITED to indicate
   how the symbol is accessible. If no symbol is found then both values
   are NIL."
-  ;; We just simple-stringify the name and call FIND-SYMBOL*, where the
-  ;; real logic is.
-  (let ((name (if (simple-string-p name) name (coerce name 'simple-string))))
-    (declare (simple-string name))
-    (find-symbol* name
-                  (length name)
-                  (find-undeleted-package-or-lose package))))
+    (find/intern find-symbol*)))
 
 ;;; If the symbol named by the first LENGTH characters of NAME doesn't exist,
 ;;; then create it, special-casing the keyword package.
@@ -995,6 +1006,8 @@ implementation it is ~S." *default-package-use-list*)
                  (let ((symbol-name (cond (no-copy
                                            (aver (= (length name) length))
                                            name)
+                                          ((typep name '(simple-array nil (*)))
+                                           "")
                                           (t
                                            ;; This so that SUBSEQ is inlined,
                                            ;; because we need it fixed for cold init.
@@ -1032,27 +1045,25 @@ implementation it is ~S." *default-package-use-list*)
                         string length hash ehash)
       (when found
         (return-from find-symbol* (values symbol :external))))
-    (let ((head (package-tables package)))
-      (do ((prev head table)
-           (table (cdr head) (cdr table)))
-          ((null table) (values nil nil))
-        (with-symbol (found symbol (car table) string length hash ehash)
-          (when found
-            ;; At this point we used to move the table to the
-            ;; beginning of the list, probably on the theory that we'd
-            ;; soon be looking up further items there. Unfortunately
-            ;; that was very much non-thread safe. Since the failure
-            ;; mode was nasty (corruption of the package in a way
-            ;; which would make symbol lookups loop infinitely) and it
-            ;; would be triggered just by doing reads to a resource
-            ;; that users can't do their own locking on, that code has
-            ;; been removed. If we ever add locking to packages,
-            ;; resurrecting that code might make sense, even though it
-            ;; didn't seem to have much of an performance effect in
-            ;; normal use.
-            ;;
-            ;; -- JES, 2006-09-13
-            (return-from find-symbol* (values symbol :inherited))))))))
+    (let* ((tables (package-tables package))
+           (n (length tables)))
+      (unless (eql n 0)
+        ;; Try the most-recently-used table, then others.
+        ;; TABLES is treated as circular for this purpose.
+        (let* ((mru (package-mru-table-index package))
+               (start (if (< mru n) mru 0))
+               (i start))
+          (loop
+             (with-symbol (found symbol
+                                 (locally (declare (optimize (safety 0)))
+                                   (svref tables i))
+                                 string length hash ehash)
+               (when found
+                 (setf (package-mru-table-index package) i)
+                 (return-from find-symbol* (values symbol :inherited))))
+             (if (< (decf i) 0) (setq i (1- n)))
+             (if (= i start) (return)))))))
+  (values nil nil))
 
 ;;; Similar to FIND-SYMBOL, but only looks for an external symbol.
 ;;; This is used for fast name-conflict checking in this file and symbol
@@ -1515,7 +1526,11 @@ PACKAGE."
                        (name-conflict package 'use-package pkg sym s)))))))
 
             (push pkg (package-%use-list package))
-            (push (package-external-symbols pkg) (cdr (package-tables package)))
+            (setf (package-tables package)
+                  (let ((tbls (package-tables package)))
+                    (replace (make-array (1+ (length tbls))
+                              :initial-element (package-external-symbols pkg))
+                             tbls)))
             (push package (package-%used-by-list pkg)))))))
   t)
 
@@ -1534,7 +1549,7 @@ PACKAGE."
                 (remove p (the list (package-%use-list package))))
           (setf (package-tables package)
                 (delete (package-external-symbols p)
-                        (the list (package-tables package))))
+                        (package-tables package)))
           (setf (package-%used-by-list p)
                 (remove package (the list (package-%used-by-list p))))))
       t)))
