@@ -909,7 +909,7 @@ standard Lisp readtable when NIL."
                  (or (plusp (fill-pointer (token-buf-escapes read-buffer)))
                      seen-multiple-escapes)
                  colon)))
-    (cond ((single-escape-p char)
+    (cond ((single-escape-p char rt)
            ;; It can't be a number, even if it's 1\23.
            ;; Read next char here, so it won't be casified.
            (let ((nextchar (read-char stream nil +EOF+)))
@@ -1024,20 +1024,19 @@ standard Lisp readtable when NIL."
 ;; indices in reverse order. Returns a new list of escapes.
 (defun normalize-read-buffer (token-buf &optional colon)
   (unless (readtable-normalization *readtable*)
-    (return-from normalize-read-buffer (values buf colon)))
+    (return-from normalize-read-buffer (values token-buf colon)))
   (let ((current-buffer (copy-token-buf-string token-buf))
-        (old-escapes (token-buf-escapes token-buf))
+        (old-escapes (copy-seq (token-buf-escapes token-buf)))
         (str-to-normalize (make-string (token-buf-fill-ptr token-buf)))
-        (new-buf (acquire-token-buf))
         (normalize-ptr 0) (escapes-ptr 0) new-colon)
     ;; Prevent index errors by adding a senitel element
-    (vector-push-extend -1 old-escapes)
+    (reset-read-buffer token-buf)
     (macrolet ((clear-str-to-normalize ()
                `(progn
                   (loop for char across (sb!unicode:normalize-string
                                          (subseq str-to-normalize 0 normalize-ptr)
                                          :nfkc) do
-                       (ouch-read-buffer char new-buf))
+                       (ouch-read-buffer char token-buf))
                   (setf normalize-ptr 0)))
                (push-to-normalize (ch)
                  (let ((ch-gen (gensym)))
@@ -1047,17 +1046,18 @@ standard Lisp readtable when NIL."
       (loop for c across current-buffer
          for i from 0
          do
-           (if (eql i (aref old-escapes escapes-ptr))
+           (if (and (< escapes-ptr (length old-escapes))
+                    (eql i (aref old-escapes escapes-ptr)))
                (progn
                  (clear-str-to-normalize)
-                 (ouch-read-buffer-escpaed c new-buf)
+                 (ouch-read-buffer-escaped c token-buf)
                  (incf escapes-ptr))
                (progn
                  (push-to-normalize c)
                  (when (and (not new-colon) (eql c #\:))
                    (setf new-colon i)))))
       (clear-str-to-normalize)
-      (values new-buf new-colon))))
+      (values token-buf new-colon))))
 
 ;;; Modify the read buffer according to READTABLE-CASE, ignoring
 ;;; ESCAPES. ESCAPES is a vector of the escaped indices.
