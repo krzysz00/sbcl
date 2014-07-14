@@ -19,7 +19,7 @@
    :vector (graphemes (normalize-string string) :as-vector t)))
 
 (declaim (ftype (function (unicode-string) string)
-                string->unicode-string))
+                unicode-string->string))
 (defun unicode-string->string (uni-string)
   "Converts UNI-STRING to a ANSI Common LIsp string"
   (let ((ret (make-array (length uni-string) :element-type 'character
