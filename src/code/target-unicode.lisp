@@ -307,7 +307,7 @@ appear in an SBCL string. The line-breaking behavior of surrogates is undefined.
   #!+sb-doc
   "Returns T if CHARACTER is Alphabetic according to the Unicode standard
 and NIL otherwise"
-  (or (not (not (member (general-category character) '(:Lu :Ll :Lt :Lm :Lo :Nl))))
+  (or (member (general-category character) '(:Lu :Ll :Lt :Lm :Lo :Nl))
       (proplist-p character :other-alphabetic)))
 
 (defun ideographic-p (character)
@@ -315,6 +315,12 @@ and NIL otherwise"
   "Returns T if CHARACTER has the Unicode property Ideographic,
 which loosely corresponds to the set of \"Chinese characters\""
   (proplist-p character :ideographic))
+
+(defun math-p (character)
+  #!+sb-doc
+  "Returns T if CHARACTER is a mathematical symbol according to Unicode and
+NIL otherwise"
+  (or (eql (general-category character) :sm) (proplist-p character :other-math)))
 
 (defun whitespace-p (character)
   #!+sb-doc
