@@ -707,6 +707,8 @@ codepoint.
 
 @include fun-sb-unicode-ideographic-p.texinfo
 
+@include fun-sb-unicode-math-p.texinfo
+
 @include fun-sb-unicode-whitespace-p.texinfo
 
 @include fun-sb-unicode-soft-dotted-p.texinfo

@@ -512,7 +512,7 @@ Length should be adjusted when the standard changes.")
     (parse-property s) ;; Hyphen
     (parse-property s) ;; Quotation_Mark
     (parse-property s) ;; Terminal_Punctuation
-    (parse-property s) ;; Other_Math
+    (parse-property s :other-math)
     (parse-property s) ;; Hex_Digit
     (parse-property s) ;; ASCII_Hex_Digit
     (parse-property s :other-alphabetic)
