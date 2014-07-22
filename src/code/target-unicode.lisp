@@ -301,7 +301,7 @@ appear in an SBCL string. The line-breaking behavior of surrogates is undefined.
   (or (member (general-category character)
               '(:Mn :Me :Cf :Lm :Sk))
       (member (word-break-class character)
-              '(:midletter :midnumlet))))
+              '(:midletter :midnumlet :single-quote))))
 
 (defun alphabetic-p (character)
   #!+sb-doc
