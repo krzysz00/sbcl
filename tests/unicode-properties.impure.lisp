@@ -45,7 +45,10 @@ is replaced with replacement."
            (char (code-char cp))
            (gc (intern (string-upcase %gc) "KEYWORD"))
            (bidi (intern (string-upcase %bidi) "KEYWORD"))
-           (name (if (position #\< %name) nil (substitute #\_ #\Space %name)))
+           ;; See `normalize-character-name` in ucd.lisp for a discussion
+           ;; of U+1F5CF (PAGE) and the attendant standards-compliance issues2
+           (name (unless (or (position #\< %name) (= cp #x1F5CF))
+                   (substitute #\_ #\Space %name)))
            (char-from-name (name-char name))
            (decimal-digit (parse-integer %decimal-digit :junk-allowed t))
            (digit (parse-integer %digit :junk-allowed t))
