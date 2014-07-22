@@ -142,7 +142,10 @@
      :Meetei-Mayek :Imperial-Aramaic :Old-South-Arabian :Inscriptional-Parthian
      :Inscriptional-Pahlavi :Old-Turkic :Kaithi :Batak :Brahmi :Mandaic :Chakma
      :Meroitic-Cursive :Meroitic-Hieroglyphs :Miao :Sharada :Sora-Sompeng
-     :Takri)))
+     :Takri :Bassa-Vah :Mahajani :Pahawh-Hmong :Caucasian-Albanian :Manichaean
+     :Palmyrene :Duployan :Mende-Kikakui :Pau-Cin-Hau :Elbasan :Modi
+     :Psalter-Pahlavi :Grantha :Mro :Siddham :Khojki :Nabataean :Tirhuta
+     :Khudawadi :Old-North-Arabian :Warang-Citi :Linear-A :Old-Permic)))
 
 (defparameter *line-break-classes*
   (reverse-ucd-indices
@@ -855,7 +858,7 @@ The result is not guaranteed to have the same length as the input."
            #x106A #x106B #x106C #x106D #x1083 #x1087 #x1088 #x1089 #x108A
            #x108B #x108C #x108F #x109A #x109B #x109C #x19B0 #x19B1 #x19B2
            #x19B3 #x19B4 #x19B8 #x19B9 #x19BB #x19BC #x19BD #x19BE #x19BF
-           #x19C0 #x19C8 #x19C9 #x1A61 #x1A63 #x1A64 #xAA7B)))
+           #x19C0 #x19C8 #x19C9 #x1A61 #x1A63 #x1A64 #xAA7B #xAA7D)))
     (cond
       ((not char) nil)
       ((= cp 10) :LF)

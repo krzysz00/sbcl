@@ -145,7 +145,11 @@ Length should be adjusted when the standard changes.")
      "Bamum" "Javanese" "Meetei_Mayek" "Imperial_Aramaic" "Old_South_Arabian"
      "Inscriptional_Parthian" "Inscriptional_Pahlavi" "Old_Turkic" "Kaithi"
      "Batak" "Brahmi" "Mandaic" "Chakma" "Meroitic_Cursive"
-     "Meroitic_Hieroglyphs" "Miao" "Sharada" "Sora_Sompeng" "Takri")))
+     "Meroitic_Hieroglyphs" "Miao" "Sharada" "Sora_Sompeng" "Takri"
+     "Bassa_Vah" "Mahajani" "Pahawh_Hmong" "Caucasian_Albanian" "Manichaean"
+     "Palmyrene" "Duployan" "Mende_Kikakui" "Pau_Cin_Hau" "Elbasan" "Modi"
+     "Psalter_Pahlavi" "Grantha" "Mro" "Siddham" "Khojki" "Nabataean" "Tirhuta"
+     "Khudawadi" "Old_North_Arabian" "Warang_Citi" "Linear_A" "Old_Permic")))
 (defparameter *line-break-classes*
   (init-indices
    '("XX" "AI" "AL" "B2" "BA" "BB" "BK" "CB" "CJ" "CL" "CM" "CP" "CR" "EX" "GL"
@@ -159,7 +163,8 @@ Length should be adjusted when the standard changes.")
        for line = (read-line s nil nil) while line
        unless (or (not (position #\# line)) (= 0 (position #\# line)))
        do (destructuring-bind (codepoints value)
-              (split-string (subseq line 0 (1- (position #\# line))) #\;)
+              (split-string
+               (string-right-trim " " (subseq line 0 (position #\# line))) #\;)
             (let ((range (parse-codepoint-range codepoints))
                   (index (gethash value *east-asian-widths*)))
               (loop for i from (car range) to (cadr range)
@@ -174,7 +179,8 @@ Length should be adjusted when the standard changes.")
        for line = (read-line s nil nil) while line
        unless (or (not (position #\# line)) (= 0 (position #\# line)))
        do (destructuring-bind (codepoints value)
-              (split-string (subseq line 0 (1- (position #\# line))) #\;)
+              (split-string
+               (string-right-trim " " (subseq line 0 (position #\# line))) #\;)
             (let ((range (parse-codepoint-range codepoints))
                   (index (gethash (subseq value 1) *scripts*)))
               (loop for i from (car range) to (cadr range)
@@ -189,7 +195,8 @@ Length should be adjusted when the standard changes.")
        for line = (read-line s nil nil) while line
        unless (or (not (position #\# line)) (= 0 (position #\# line)))
        do (destructuring-bind (codepoints value)
-              (split-string (subseq line 0 (1- (position #\# line))) #\;)
+              (split-string
+               (string-right-trim " " (subseq line 0 (position #\# line))) #\;)
             (let ((range (parse-codepoint-range codepoints))
                   ;; Hangul syllables temporarily go to "Unkwown"
                   (index (gethash value *line-break-classes* 0)))
@@ -229,7 +236,7 @@ Length should be adjusted when the standard changes.")
                  ;; any other GC), aren't digits, aren't interestingly bidi, and don't
                  ;; decompose, combine, or have case. They have an East Asian Width
                  ;; (eaw) of "N" (0), and a script and line breaking class of 0
-                 ;; ("Unknown"), unless some ofg those properties are otherwise assigned
+                 ;; ("Unknown"), unless some of those properties are otherwise assigned
                  `(31 0 0 128 0 ,(gethash code-point *east-asian-width-table* 0)
                    0 ,(gethash code-point *line-break-class-table* 0)))
                 (unallocated-index (apply #'hash-misc unallocated-misc))
@@ -253,8 +260,9 @@ Length should be adjusted when the standard changes.")
 (defun add-jamo-information (line table)
   (let* ((split (split-string line #\;))
          (code (parse-integer (first split) :radix 16))
-         (syllable (string-trim '(#\Space)
-                                (subseq (second split) 0 (position #\# (second split))))))
+         (syllable (string-trim
+                    " "
+                    (subseq (second split) 0 (position #\# (second split))))))
     (setf (gethash code table) syllable)))
 
 (defun fixup-hangul-syllables ()
@@ -565,8 +573,8 @@ Length should be adjusted when the standard changes.")
 
 (defun bitpack-collation-key (primary secondary tertiary)
   ;; 0 <= primary <= #xFFFD (default table)
-  ;; 0 <= secondary <= #x100
-  ;; 0 <= tertiary <= #x1E (#x1F allowed)
+  ;; 0 <= secondary <= #x10C [9 bits]
+  ;; 0 <= tertiary <= #x1E (#x1F allowed) [5 bits]
   ;; Because of this, the bit packs don't overlap
   (logior (ash primary 16) (ash secondary 5) tertiary))
 
@@ -592,7 +600,7 @@ Length should be adjusted when the standard changes.")
     (values code-points ret))))
 
 (defparameter *collation-table*
-  (with-open-file (stream (make-pathname :name "Allkeys63" :type "txt"
+  (with-open-file (stream (make-pathname :name "Allkeys70" :type "txt"
                                     :defaults *unicode-character-database*))
     (loop with hash = (make-hash-table :test #'equal)
        for line = (read-line stream nil nil) while line
