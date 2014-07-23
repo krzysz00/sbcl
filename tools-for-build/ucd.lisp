@@ -298,12 +298,13 @@ Length should be adjusted when the standard changes.")
 (defun normalize-character-name (name)
   (when (find #\_ name)
     (error "Bad name for a character: ~A" name))
-  (unless (or (zerop (length name)) (find #\< name) (find #\> name)
-              ;; U+1F5CF (PAGE)'s name conflicts with the ANSI CL-assigned
-              ;; name for form feed (^L, U+000C). To avoid a case where
-              ;; more than one character has a particular name while remaining
-              ;; standards-compliant, we remove U+1F5CF's name here.
-              (string= name "PAGE"))
+  ;; U+1F5CF (PAGE)'s name conflicts with the ANSI CL-assigned
+  ;; name for form feed (^L, U+000C). To avoid a case where
+  ;; more than one character has a particular name while remaining
+  ;; standards-compliant, we remove U+1F5CF's name here.
+  (when (string= name "PAGE")
+    (return-from normalize-character-name "UNICODE_PAGE"))
+  (unless (or (zerop (length name)) (find #\< name) (find #\> name))
     (substitute #\_ #\Space name)))
 
 ;;;   3400  --  4DB5  : cjk ideograph extension a ;Lo;0;L;;;;;N;;;;;
