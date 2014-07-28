@@ -107,8 +107,12 @@
            ((< item start) (return-from ordered-ranges-member nil)) ;Too far
            (t nil)))) nil)
 
-(defun proplist-p (char property)
-  (ordered-ranges-member (char-code char)
+(defun proplist-p (character property)
+  #!+sb-doc
+  "Returns T if CHARACTER has the specified PROPERTY.
+PROPERTY is a keyword representing one of the properties from PropList.txt,
+with underscores replaced by dashes."
+  (ordered-ranges-member (char-code character)
                          (gethash property **proplist-properties**)))
 
 ;; WARNING: These have to be manually kept in sync with the values in ucd.lisp
@@ -329,7 +333,14 @@ NIL otherwise"
   #!+sb-doc
   "Returns T if CHARACTER is whitespace according to Unicode
 and NIL otherwise"
-  (proplist-p character :whitespace))
+  (proplist-p character :white-space))
+
+(defun hex-digit-p (character &key ascii)
+  #!+sb-doc
+  "Returns T if CHARACTER is a hexadecimal digit and NIL otherwise.
+If :ASCII is non-NIL, fullwidth equivalents of the Latin letters A through F
+are excluded."
+  (proplist-p character (if ascii :ascii-hex-digit :hex-digit)))
 
 (defun soft-dotted-p (character)
   #!+sb-doc
@@ -341,7 +352,7 @@ disappears when accents are placed on top of it. and NIL otherwise"
   #!+sb-doc
   "Returns T if CHARACTER is a Default_Ignorable_Code_Point"
   (and
-   (or (proplist-p character :other-default-ignorable)
+   (or (proplist-p character :other-default-ignorable-code-point)
        (eql (general-category character) :cf)
        (proplist-p character :variation-selector))
    (not

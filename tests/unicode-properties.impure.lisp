@@ -139,6 +139,32 @@ Wanted ~S, got ~S."
 
 (test-script)
 
+(defun test-proplist ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/PropList.txt"
+                     :external-format :ascii)
+    (with-test (:name (:proplist)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+         while line
+         unless (or (string= "" line) (eql 0 (position #\# line)))
+         do
+           (destructuring-bind (%codepoints value) (split-string line #\;)
+                 (let* ((codepoints (codepoint-or-range %codepoints))
+                        (property
+                         (intern (string-upcase
+                                  (substitute
+                                   #\- #\_
+                                   (subseq (remove #\Space value) 0
+                                           (position #\# (remove #\Space value)))))
+                          "KEYWORD")))
+                   (loop for i in codepoints do
+                        (unless (proplist-p (code-char i) property)
+                          (error "Character ~S should be ~S, but isn't."
+                                 (code-char i) property)))))))))
+
+(test-proplist)
+
 (defun test-grapheme-break-class ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/GraphemeBreakProperty.txt"

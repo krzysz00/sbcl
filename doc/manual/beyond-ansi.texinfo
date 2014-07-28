@@ -721,6 +721,8 @@ codepoint.
 
 @include fun-sb-unicode-script.texinfo
 
+@include fun-sb-unicode-proplist-p.texinfo
+
 @include fun-sb-unicode-uppercase-p.texinfo
 
 @include fun-sb-unicode-lowercase-p.texinfo
@@ -738,6 +740,8 @@ codepoint.
 @include fun-sb-unicode-whitespace-p.texinfo
 
 @include fun-sb-unicode-soft-dotted-p.texinfo
+
+@include fun-sb-unicode-hex-digit-p.texinfo
 
 @include fun-sb-unicode-default-ignorable-p.texinfo
 

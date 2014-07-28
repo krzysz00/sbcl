@@ -519,38 +519,38 @@ Length should be adjusted when the standard changes.")
                                     :defaults *unicode-character-database*)
                      :direction :input)
     (parse-property s) ;; Initial comments
-    (parse-property s :whitespace)
-    (parse-property s) ;; Bidi_Control
-    (parse-property s) ;; Join_Control
-    (parse-property s) ;; Dash
-    (parse-property s) ;; Hyphen
-    (parse-property s) ;; Quotation_Mark
-    (parse-property s) ;; Terminal_Punctuation
+    (parse-property s :white-space)
+    (parse-property s :bidi-control)
+    (parse-property s :join-control)
+    (parse-property s :dash)
+    (parse-property s :hyphen)
+    (parse-property s :quotation-mark)
+    (parse-property s :terminal-punctuation)
     (parse-property s :other-math)
-    (parse-property s) ;; Hex_Digit
-    (parse-property s) ;; ASCII_Hex_Digit
+    (parse-property s :hex-digit)
+    (parse-property s :ascii-hex-digit)
     (parse-property s :other-alphabetic)
     (parse-property s :ideographic)
-    (parse-property s) ;; Diacritic
-    (parse-property s) ;; Extender
+    (parse-property s :diacritic)
+    (parse-property s :extender)
     (parse-property s :other-lowercase)
     (parse-property s :other-uppercase)
-    (parse-property s) ;; Noncharacter_code_point
+    (parse-property s :noncharacter-code-point)
     (parse-property s :other-grapheme-extend)
-    (parse-property s) ;; IDS_Binary_Operator
-    (parse-property s) ;; IDS_Trinary_Operator
-    (parse-property s) ;; Radical
+    (parse-property s :ids-binary-operator)
+    (parse-property s :ids-trinary-operator)
+    (parse-property s :radical)
     (parse-property s :unified-ideograph)
-    (parse-property s :other-default-ignorable)
-    (parse-property s) ;; Deprecated
+    (parse-property s :other-default-ignorable-code-point)
+    (parse-property s :deprecated)
     (parse-property s :soft-dotted)
-    (parse-property s) ;; Logical_Order_Exception
-    (parse-property s) ;; Other_ID_Start
-    (parse-property s) ;; Other_ID_Continue
+    (parse-property s :logical-order-exception)
+    (parse-property s :other-id-start)
+    (parse-property s :other-id-continue)
     (parse-property s :sterm)
     (parse-property s :variation-selector)
-    (parse-property s) ;; Pattern_White_Space
-    (parse-property s)) ;; Pattern_Syntax
+    (parse-property s :pattern-white-space)
+    (parse-property s :pattern-syntax))
 
   (with-open-file (s (make-pathname :name "DerivedNormalizationProps"
                                     :type "txt"
