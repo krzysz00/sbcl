@@ -165,6 +165,29 @@ Wanted ~S, got ~S."
 
 (test-proplist)
 
+(defun test-bidi-mirroring-glyph ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/BidiMirroring.txt"
+                     :external-format :ascii)
+    (with-test (:name (:bidi-mirroring-glyph)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+         while line
+         unless (or (string= "" line) (eql 0 (position #\# line)))
+         do
+           (let* ((codepoints
+                   (split-string (subseq line 0 (position #\# line)) #\;))
+                  (chars
+                   (mapcar
+                    #'(lambda (s) (code-char (parse-integer s :radix 16)))
+                    codepoints)))
+             (unless (char= (bidi-mirroring-glyph (first chars)) (second chars))
+               (error "The mirroring glyph of ~S is not ~S, but ~S"
+                      (first chars) (second chars)
+                      (bidi-mirroring-glyph (first chars)))))))))
+
+(test-bidi-mirroring-glyph)
+
 (defun test-grapheme-break-class ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/GraphemeBreakProperty.txt"

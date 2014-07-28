@@ -59,10 +59,22 @@
                                       sb!xc:*compile-file-truename*)
                                      :direction :input
                                      :element-type 'character)
+                      (read stream)))
+                   (bidi-mirroring-list
+                    (with-open-file (stream
+                                     (merge-pathnames
+                                      (make-pathname
+                                       :directory
+                                       '(:relative :up :up "output")
+                                       :name "bidi-mirrors" :type "lisp-expr")
+                                      sb!xc:*compile-file-truename*)
+                                     :direction :input
+                                     :element-type 'character)
                       (read stream))))
                `(progn
                   (sb!impl::defglobal **proplist-properties** ',proplist-dump)
                   (sb!impl::defglobal **confusables** ',confusable-sets)
+                  (sb!impl::defglobal **bidi-mirroring-glyphs** ',bidi-mirroring-list)
                   (defun !unicode-properties-cold-init ()
                     (let ((hash (make-hash-table)) (list ',proplist-dump))
                       (do ((k (car list) (car list)) (v (cadr list) (cadr list)))
@@ -77,7 +89,11 @@
                                 (mapcar #'(lambda (item)
                                             (coerce (mapcar #'code-char item)
                                                     'string)) set))
-                            ',confusable-sets))))))))
+                            ',confusable-sets)))
+                    (let ((hash (make-hash-table)) (list ',bidi-mirroring-list))
+                      (loop for (k v) in list do
+                           (setf (gethash k hash) v))
+                      (setf **bidi-mirroring-glyphs** hash)))))))
   (unicode-property-init))
 
 ;;; Unicode property access
@@ -213,6 +229,14 @@ The only constraint on the numeric value is that it be a rational number."
 Otherwise, returns NIL."
   (logbitp 5 (aref **character-misc-database**
                     (+ 5 (misc-index character)))))
+
+(defun bidi-mirroring-glyph (character)
+  #!+sb-doc
+  "Returns the mirror image of CHARACTER if it exists.
+Otherwise, returns NIL."
+  (when (mirrored-p character)
+    (let ((ret (gethash (char-code character) **bidi-mirroring-glyphs**)))
+      (when ret (code-char ret)))))
 
 (defun east-asian-width (character)
   #!+sb-doc

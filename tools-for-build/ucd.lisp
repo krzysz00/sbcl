@@ -213,6 +213,17 @@ Length should be adjusted when the standard changes.")
        collect (mapcar #'parse-codepoints (split-string line #\<))))
   "List of confusable codepoint sets")
 
+(defparameter *bidi-mirroring-glyphs*
+  (with-open-file (s (make-pathname :name "BidiMirroring" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop for line = (read-line s nil nil) while line
+       unless (eql 0 (position #\# line))
+       collect
+         (mapcar
+          #'(lambda (c) (parse-codepoints c :singleton-list nil))
+          (split-string (subseq line 0 (position #\# line)) #\;))))
+  "List of BIDI mirroring glyph pairs")
+
 (defvar *block-first* nil)
 
 
@@ -850,4 +861,14 @@ Length should be adjusted when the standard changes.")
     (with-standard-io-syntax
       (let ((*print-pretty* t))
         (prin1 *confusables*))))
+  (with-open-file (*standard-output*
+                   (make-pathname :name "bidi-mirrors"
+                                  :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (prin1 *bidi-mirroring-glyphs*))))
   (values))
