@@ -214,6 +214,31 @@ Wanted ~S, got ~S."
 
 (test-bidi-mirroring-glyph)
 
+(defun test-age ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/DerivedAge.txt"
+                     :external-format :ascii)
+    (with-test (:name (:age)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+         while line
+         unless (or (string= "" line) (eql 0 (position #\# line)))
+         do
+           (destructuring-bind (%codepoints %age)
+               (split-string (subseq line 0 (position #\# line)) #\;)
+             (let* ((range (codepoint-or-range %codepoints))
+                    (expected (mapcar #'parse-integer (split-string %age #\.))))
+               (loop for i in range
+                  for char = (code-char i)
+                  do
+                    (unless (equalp
+                             expected
+                             (multiple-value-list (age char)))
+                      (error "Character ~S should have age ~S, but has ~S instead."
+                             char expected (multiple-value-list (age char)))))))))))
+
+(test-age)
+
 (defun test-grapheme-break-class ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/GraphemeBreakProperty.txt"

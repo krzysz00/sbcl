@@ -721,6 +721,8 @@ codepoint.
 
 @include fun-sb-unicode-bidi-mirroring-glyph.texinfo
 
+@include fun-sb-unicode-age.texinfo
+
 @include fun-sb-unicode-hangul-syllable-type.texinfo
 
 @include fun-sb-unicode-east-asian-width.texinfo

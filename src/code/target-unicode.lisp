@@ -348,14 +348,14 @@ one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
 (defun script (character)
   #!+sb-doc
   "Returns the Script property of CHARACTER as a keyword.
-If a character does not have a known script, returns :UNKNOWN"
+If CHARACTER does not have a known script, returns :UNKNOWN"
   (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
            *scripts*))
 
 (defun char-block (character)
   #!+sb-doc
   "Returns the Unicode block in which CHARACTER resides as a keyword.
-If a character does not have a known block, returns :NO-BLOCK"
+If CHARACTER does not have a known block, returns :NO-BLOCK"
   (let* ((code (char-code character))
          (block-index (ordered-ranges-position code **block-ranges**)))
     (if block-index
@@ -374,6 +374,16 @@ is only included for backwards compatibility."
     (when h-code
       ;; Remove UNICODE1_ prefix
       (subseq (huffman-decode h-code *unicode-character-name-huffman-tree*) 9))))
+
+(defun age (character)
+  #!+sb-doc
+  "Returns the version of Unicode in which CHARACTER was assigned as a pair
+of values, both integers, representing the major and minor version respectively.
+If CHARACTER is not assigned in Unicode, returns NIL for both values."
+  (let* ((value (aref **character-misc-database** (+ 8 (misc-index character))))
+         (major (ash value -3))
+         (minor (ldb (byte 3 0) value)))
+    (if (zerop value) (values nil nil) (values major minor))))
 
 (defun hangul-syllable-type (character)
   #!+sb-doc
@@ -436,7 +446,7 @@ appear in an SBCL string. The line-breaking behavior of surrogates is undefined.
 
 (defun lowercase-p (character)
   #!+sb-doc
-  "Returns T if a CHARACTER has the Unicode property Lowercase and NIL otherwise"
+  "Returns T if CHARACTER has the Unicode property Lowercase and NIL otherwise"
   (or (eql (general-category character) :Ll) (proplist-p character :other-lowercase)))
 
 (defun cased-p (character)
