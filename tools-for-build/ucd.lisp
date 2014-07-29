@@ -102,10 +102,10 @@
          finally (return hash)))
   "Maps cp -> (cons uppercase|(uppercase ...) lowercase|(lowercase ...))")
 
-(defparameter *misc-table* (make-array 2048 :fill-pointer 0)
+(defparameter *misc-table* (make-array 3000 :fill-pointer 0)
 "Holds the entries in the Unicode database's miscellanious array, stored as lists.
 These lists have the form (gc-index bidi-index ccc digit decomposition-info
-flags script line-break). Flags is a bit-bashed integer containing
+flags script line-break age). Flags is a bit-bashed integer containing
 cl-both-case-p, has-case-p, and bidi-mirrored-p, and an east asian width.
 Length should be adjusted when the standard changes.")
 (defparameter *misc-hash* (make-hash-table :test #'equal)
@@ -205,28 +205,39 @@ Length should be adjusted when the standard changes.")
        finally (return hash)))
 "Table of line break classes. Used in the creation of misc entries.")
 
-(defparameter *confusables*
-  (with-open-file (s (make-pathname :name "ConfusablesEdited" :type "txt"
+(defparameter *age-table*
+  (with-open-file (s (make-pathname :name "DerivedAge" :type "txt"
                                     :defaults *unicode-character-database*))
-    (loop for line = (read-line s nil nil) while line
-       unless (eql 0 (position #\# line))
-       collect (mapcar #'parse-codepoints (split-string line #\<))))
-  "List of confusable codepoint sets")
+    (loop with hash = (make-hash-table)
+       for line = (read-line s nil nil) while line
+       unless (or (not (position #\# line)) (= 0 (position #\# line)))
+       do (destructuring-bind (codepoints value)
+              (split-string
+               (string-right-trim " " (subseq line 0 (position #\# line))) #\;)
+            (let* ((range (parse-codepoint-range codepoints))
+                   (age-parts (mapcar #'parse-integer (split-string value #\.)))
+                   (age (logior (ash (car age-parts) 3) (cadr age-parts))))
+              (loop for i from (car range) to (cadr range)
+                 do (setf (gethash i hash) age))))
+       finally (return hash)))
+"Table of character ages. Used in the creation of misc entries.")
 
 (defvar *block-first* nil)
 
 
 ;;; Unicode data file parsing
 (defun hash-misc (gc-index bidi-index ccc digit decomposition-info flags
-                  script line-break)
+                  script line-break age)
   (let* ((list (list gc-index bidi-index ccc digit decomposition-info flags
-                     script line-break))
+                     script line-break age))
          (index (gethash list *misc-hash*)))
     (or index
         (progn
           (setf (gethash list *misc-hash*)
                 (fill-pointer *misc-table*))
-          (vector-push list *misc-table*)))))
+          (when (eql nil (vector-push list *misc-table*))
+            (error "Misc table too small."))
+          (gethash list *misc-hash*)))))
 
 (defun complete-misc-table ()
   (loop for code-point from 0 to #x10FFFF do ; Flood-fil unallocated codepoints
@@ -235,10 +246,11 @@ Length should be adjusted when the standard changes.")
                  ;; unallocated characters have a GC index of 31 (not colliding with
                  ;; any other GC), aren't digits, aren't interestingly bidi, and don't
                  ;; decompose, combine, or have case. They have an East Asian Width
-                 ;; (eaw) of "N" (0), and a script and line breaking class of 0
+                 ;; (eaw) of "N" (0), and a script, line breaking class, and age of 0
                  ;; ("Unknown"), unless some of those properties are otherwise assigned
                  `(31 0 0 128 0 ,(gethash code-point *east-asian-width-table* 0)
-                   0 ,(gethash code-point *line-break-class-table* 0)))
+                   0 ,(gethash code-point *line-break-class-table* 0)
+                   ,(gethash code-point *age-table* 0)))
                 (unallocated-index (apply #'hash-misc unallocated-misc))
                 (unallocated-ucd (make-ucd :misc unallocated-index :decomp 0)))
            (setf (gethash code-point *ucd-entries*) unallocated-ucd)))))
@@ -320,7 +332,7 @@ Length should be adjusted when the standard changes.")
                             unicode-1-name iso-10646-comment simple-uppercase
                             simple-lowercase simple-titlecase)
       line
-    (declare (ignore unicode-1-name iso-10646-comment))
+    (declare (ignore iso-10646-comment))
     (if (and (> (length name) 8)
              (string= ", First>" name :start2 (- (length name) 8)))
         (progn
@@ -351,7 +363,8 @@ Length should be adjusted when the standard changes.")
                (decomposition-index 0)
                (eaw-index (gethash code-point *east-asian-width-table*))
                (script-index (gethash code-point *script-table* 0))
-               (line-break-index (gethash code-point *line-break-class-table* 0)))
+               (line-break-index (gethash code-point *line-break-class-table* 0))
+               (age-index (gethash code-point *age-table* 0)))
           (when (and (not cl-both-case-p)
                      (< gc-index 2))
             (format t "~A~%" name))
@@ -422,7 +435,7 @@ Length should be adjusted when the standard changes.")
                          eaw-index))
                  (misc-index (hash-misc gc-index bidi-index ccc digit-index
                                         decomposition-info flags script-index
-                                        line-break-index))
+                                        line-break-index age-index))
                  (result (make-ucd :misc misc-index
                                    :decomp decomposition-index)))
             (when (and (> (length name) 7)
@@ -432,25 +445,34 @@ Length should be adjusted when the standard changes.")
               ;; has a consistent East Asian Width
               (loop for point from *block-first* to code-point do
                    (setf (gethash point *ucd-entries*) result)))
-            (values result (normalize-character-name name)))))))
+            (values result (normalize-character-name name)
+                    (normalize-character-name unicode-1-name)))))))
 
 (defun slurp-ucd-line (line)
   (let* ((split-line (split-string line #\;))
          (code-point (parse-integer (first split-line) :radix 16)))
-    (multiple-value-bind (encoding name)
+    (multiple-value-bind (encoding name unicode-1-name)
         (encode-ucd-line (cdr split-line) code-point)
       (setf (gethash code-point *ucd-entries*) encoding
-            (gethash code-point *unicode-names*) name))))
+            (gethash code-point *unicode-names*) name
+            ;; The Unicode-1-name is encoded at (codepoint + #x110000)
+            ;; This is above all of Unicode (no plane 18), so there will be no conflicts
+            ;; Also, the prefix UNICODE1_ is appended because there are characters c, d
+            ;; such that Unicode-1-name(c) = name(d) and c /= d
+            (gethash (+ #x110000 code-point) *unicode-names*)
+            (when unicode-1-name
+              (concatenate 'string "UNICODE1_" unicode-1-name))))))
 
 ;;; this fixes up the case conversion discrepancy between CL and
 ;;; Unicode: CL operators depend on char-downcase / char-upcase being
 ;;; inverses, which is not true in general in Unicode even for
 ;;; characters which change case to single characters.
+;;; Also, fix misassigned age values, which are not constant across blocks
 (defun second-pass ()
   (loop for code-point being the hash-keys in *case-mapping*
      using (hash-value (upper . lower))
      for misc-index = (ucd-misc (gethash code-point *ucd-entries*))
-     for (gc bidi ccc digit decomp flags script lb) = (aref *misc-table* misc-index)
+     for (gc bidi ccc digit decomp flags script lb age) = (aref *misc-table* misc-index)
      when (logbitp 7 flags) do
        (when (or (not (atom upper)) (not (atom lower))
                  (and (= gc 0)
@@ -458,7 +480,7 @@ Length should be adjusted when the standard changes.")
                  (and (= gc 1)
                       (not (equal (cdr (gethash upper *case-mapping*)) code-point))))
          (let* ((new-flags (clear-flag 7 flags))
-                (new-misc (hash-misc gc bidi ccc digit decomp new-flags script lb)))
+                (new-misc (hash-misc gc bidi ccc digit decomp new-flags script lb age)))
            (setf (ucd-misc (gethash code-point *ucd-entries*)) new-misc)))))
 
 (defun fixup-casefolding ()
@@ -476,6 +498,17 @@ Length should be adjusted when the standard changes.")
                 (when (not (equal (cdr (gethash cp *case-mapping*)) fold))
                   (push (cons cp fold) *different-casefolds*))))))))
 
+(defun fixup-ages ()
+  (loop for code-point being the hash-keys in *age-table* using (hash-value true-age)
+     for misc-index = (ucd-misc (gethash code-point *ucd-entries*))
+     for (gc bidi ccc digit decomp flags script lb age) = (aref *misc-table* misc-index)
+     unless (= age true-age) do
+       (let* ((new-misc (hash-misc gc bidi ccc digit decomp flags script lb true-age))
+              (new-ucd (make-ucd
+                        :misc new-misc
+                        :decomp (ucd-decomp (gethash code-point *ucd-entries*)))))
+         (setf (gethash code-point *ucd-entries*) new-ucd))))
+
 (defun slurp-ucd ()
   (with-open-file (*standard-input*
                    (make-pathname :name "UnicodeData"
@@ -490,6 +523,7 @@ Length should be adjusted when the standard changes.")
   (fixup-hangul-syllables)
   (complete-misc-table)
   (fixup-casefolding)
+  (fixup-ages)
   nil)
 
 
@@ -519,38 +553,38 @@ Length should be adjusted when the standard changes.")
                                     :defaults *unicode-character-database*)
                      :direction :input)
     (parse-property s) ;; Initial comments
-    (parse-property s :whitespace)
-    (parse-property s) ;; Bidi_Control
-    (parse-property s) ;; Join_Control
-    (parse-property s) ;; Dash
-    (parse-property s) ;; Hyphen
-    (parse-property s) ;; Quotation_Mark
-    (parse-property s) ;; Terminal_Punctuation
+    (parse-property s :white-space)
+    (parse-property s :bidi-control)
+    (parse-property s :join-control)
+    (parse-property s :dash)
+    (parse-property s :hyphen)
+    (parse-property s :quotation-mark)
+    (parse-property s :terminal-punctuation)
     (parse-property s :other-math)
-    (parse-property s) ;; Hex_Digit
-    (parse-property s) ;; ASCII_Hex_Digit
+    (parse-property s :hex-digit)
+    (parse-property s :ascii-hex-digit)
     (parse-property s :other-alphabetic)
     (parse-property s :ideographic)
-    (parse-property s) ;; Diacritic
-    (parse-property s) ;; Extender
+    (parse-property s :diacritic)
+    (parse-property s :extender)
     (parse-property s :other-lowercase)
     (parse-property s :other-uppercase)
-    (parse-property s) ;; Noncharacter_code_point
+    (parse-property s :noncharacter-code-point)
     (parse-property s :other-grapheme-extend)
-    (parse-property s) ;; IDS_Binary_Operator
-    (parse-property s) ;; IDS_Trinary_Operator
-    (parse-property s) ;; Radical
+    (parse-property s :ids-binary-operator)
+    (parse-property s :ids-trinary-operator)
+    (parse-property s :radical)
     (parse-property s :unified-ideograph)
-    (parse-property s :other-default-ignorable)
-    (parse-property s) ;; Deprecated
+    (parse-property s :other-default-ignorable-code-point)
+    (parse-property s :deprecated)
     (parse-property s :soft-dotted)
-    (parse-property s) ;; Logical_Order_Exception
-    (parse-property s) ;; Other_ID_Start
-    (parse-property s) ;; Other_ID_Continue
+    (parse-property s :logical-order-exception)
+    (parse-property s :other-id-start)
+    (parse-property s :other-id-continue)
     (parse-property s :sterm)
     (parse-property s :variation-selector)
-    (parse-property s) ;; Pattern_White_Space
-    (parse-property s)) ;; Pattern_Syntax
+    (parse-property s :pattern-white-space)
+    (parse-property s :pattern-syntax))
 
   (with-open-file (s (make-pathname :name "DerivedNormalizationProps"
                                     :type "txt"
@@ -616,6 +650,39 @@ Length should be adjusted when the standard changes.")
        finally (return hash))))
 
 
+;;; Other properties
+(defparameter *confusables*
+  (with-open-file (s (make-pathname :name "ConfusablesEdited" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop for line = (read-line s nil nil) while line
+       unless (eql 0 (position #\# line))
+       collect (mapcar #'parse-codepoints (split-string line #\<))))
+  "List of confusable codepoint sets")
+
+(defparameter *bidi-mirroring-glyphs*
+  (with-open-file (s (make-pathname :name "BidiMirroring" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop for line = (read-line s nil nil) while line
+       unless (eql 0 (position #\# line))
+       collect
+         (mapcar
+          #'(lambda (c) (parse-codepoints c :singleton-list nil))
+          (split-string (subseq line 0 (position #\# line)) #\;))))
+  "List of BIDI mirroring glyph pairs")
+
+(defparameter *block-ranges*
+  (with-open-file (stream (make-pathname :name "Blocks" :type "txt"
+                                         :defaults *unicode-character-database*))
+    (loop with result = (make-array (* 252 2) :fill-pointer 0)
+       for line = (read-line stream nil nil) while line
+       unless (or (string= line "") (position #\# line))
+       do
+         (map nil #'(lambda (x) (vector-push x result))
+              (parse-codepoint-range (car (split-string line #\;))))
+       finally (return result)))
+  "Vector of block starts and ends in a form acceptable to `ordered-ranges-position`.
+Used to look up block data.")
+
 ;;; Output code
 (defun write-codepoint (code-point stream)
   (write-byte (ldb (byte 8 16) code-point) stream)
@@ -637,7 +704,7 @@ Length should be adjusted when the standard changes.")
                           :if-exists :supersede
                           :if-does-not-exist :create)
     (loop for (gc-index bidi-index ccc digit decomposition-info flags
-                        script line-break)
+                        script line-break age)
        across *misc-table*
        ;; three bits spare here
        do (write-byte gc-index stream)
@@ -650,7 +717,8 @@ Length should be adjusted when the standard changes.")
          (write-byte decomposition-info stream)
          (write-byte flags stream) ; includes EAW in bits 0-3, bit 4 is free
          (write-byte script stream)
-         (write-byte line-break stream))))
+         (write-byte line-break stream)
+         (write-byte age stream))))
 
 (defun output-ucd-data ()
   (with-open-file (high-pages (make-pathname :name "ucdhigh"
@@ -850,4 +918,24 @@ Length should be adjusted when the standard changes.")
     (with-standard-io-syntax
       (let ((*print-pretty* t))
         (prin1 *confusables*))))
+  (with-open-file (*standard-output*
+                   (make-pathname :name "bidi-mirrors"
+                                  :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (prin1 *bidi-mirroring-glyphs*))))
+  (with-open-file (*standard-output*
+                   (make-pathname :name "blocks"
+                                  :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (prin1 *block-ranges*))))
   (values))

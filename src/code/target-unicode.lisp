@@ -21,6 +21,10 @@
   (import 'SB!IMPL::**CHARACTER-CASES**)
   (import 'SB!IMPL::**CHARACTER-CASE-PAGES**)
   (import 'SB!IMPL::**CHARACTER-COLLATIONS**)
+  (import 'SB!IMPL::*UNICODE-CHARACTER-NAME-DATABASE*)
+  (import 'SB!IMPL::*UNICODE-CHARACTER-NAME-HUFFMAN-TREE*)
+  (import 'SB!IMPL::BINARY-SEARCH)
+  (import 'SB!IMPL::HUFFMAN-DECODE)
   (import 'SB!IMPL::MISC-INDEX)
   (import 'SB!IMPL::CLEAR-FLAG)
   (import 'SB!IMPL::PACK-3-CODEPOINTS))
@@ -32,6 +36,18 @@
                        :directory
                        '(:relative :up :up "output")
                        :name "numerics" :type "lisp-expr")
+                      sb!xc:*compile-file-truename*)
+                     :direction :input
+                     :element-type 'character)
+        (read stream)))
+
+(defparameter **block-ranges**
+  '#.(with-open-file (stream
+                     (merge-pathnames
+                      (make-pathname
+                       :directory
+                       '(:relative :up :up "output")
+                       :name "blocks" :type "lisp-expr")
                       sb!xc:*compile-file-truename*)
                      :direction :input
                      :element-type 'character)
@@ -59,10 +75,22 @@
                                       sb!xc:*compile-file-truename*)
                                      :direction :input
                                      :element-type 'character)
+                      (read stream)))
+                   (bidi-mirroring-list
+                    (with-open-file (stream
+                                     (merge-pathnames
+                                      (make-pathname
+                                       :directory
+                                       '(:relative :up :up "output")
+                                       :name "bidi-mirrors" :type "lisp-expr")
+                                      sb!xc:*compile-file-truename*)
+                                     :direction :input
+                                     :element-type 'character)
                       (read stream))))
                `(progn
                   (sb!impl::defglobal **proplist-properties** ',proplist-dump)
                   (sb!impl::defglobal **confusables** ',confusable-sets)
+                  (sb!impl::defglobal **bidi-mirroring-glyphs** ',bidi-mirroring-list)
                   (defun !unicode-properties-cold-init ()
                     (let ((hash (make-hash-table)) (list ',proplist-dump))
                       (do ((k (car list) (car list)) (v (cadr list) (cadr list)))
@@ -77,7 +105,11 @@
                                 (mapcar #'(lambda (item)
                                             (coerce (mapcar #'code-char item)
                                                     'string)) set))
-                            ',confusable-sets))))))))
+                            ',confusable-sets)))
+                    (let ((hash (make-hash-table)) (list ',bidi-mirroring-list))
+                      (loop for (k v) in list do
+                           (setf (gethash k hash) v))
+                      (setf **bidi-mirroring-glyphs** hash)))))))
   (unicode-property-init))
 
 ;;; Unicode property access
@@ -88,27 +120,44 @@
           do (setf (gethash index hash) string))
     hash))
 
-(defun ord-member (item vector)
-  (let ((len (length vector)))
-    (when (or (< item (svref vector 0)) (> item (svref vector (1- len))))
-      (return-from ord-member nil))
-    (loop for i across vector do
-         (cond ((= item i) (return-from ord-member i))
-               ((< item i) (return-from ord-member nil))))
-    nil))
-
 (defun ordered-ranges-member (item vector)
-  (loop for i from 0 below (length vector) by 2 do
-       (let ((start (svref vector i))
-             (end (svref vector (1+ i))))
-         (cond
-           ((<= start item end)
-            (return-from ordered-ranges-member t))
-           ((< item start) (return-from ordered-ranges-member nil)) ;Too far
-           (t nil)))) nil)
+  (labels ((recurse (start end)
+             (when (< start end)
+               (let* ((i (+ start (truncate (- end start) 2)))
+                      (index (* 2 i))
+                      (elt1 (svref vector index))
+                      (elt2 (svref vector (1+ index))))
+                 (cond ((< item elt1)
+                        (recurse start i))
+                       ((> item elt2)
+                        (recurse (+ 1 i) end))
+                       (t
+                        item))))))
+    (recurse 0 (/ (length vector) 2))))
 
-(defun proplist-p (char property)
-  (ordered-ranges-member (char-code char)
+;; Returns which range `item` was found in or NIL
+;; First range = 0, second range = 1 ...
+(defun ordered-ranges-position (item vector)
+  (labels ((recurse (start end)
+             (when (< start end)
+               (let* ((i (+ start (truncate (- end start) 2)))
+                      (index (* 2 i))
+                      (elt1 (svref vector index))
+                      (elt2 (svref vector (1+ index))))
+                 (cond ((< item elt1)
+                        (recurse start i))
+                       ((> item elt2)
+                        (recurse (+ 1 i) end))
+                       (t
+                        i))))))
+    (recurse 0 (/ (length vector) 2))))
+
+(defun proplist-p (character property)
+  #!+sb-doc
+  "Returns T if CHARACTER has the specified PROPERTY.
+PROPERTY is a keyword representing one of the properties from PropList.txt,
+with underscores replaced by dashes."
+  (ordered-ranges-member (char-code character)
                          (gethash property **proplist-properties**)))
 
 ;; WARNING: These have to be manually kept in sync with the values in ucd.lisp
@@ -146,6 +195,74 @@
      :Palmyrene :Duployan :Mende-Kikakui :Pau-Cin-Hau :Elbasan :Modi
      :Psalter-Pahlavi :Grantha :Mro :Siddham :Khojki :Nabataean :Tirhuta
      :Khudawadi :Old-North-Arabian :Warang-Citi :Linear-A :Old-Permic)))
+
+(defparameter *blocks*
+  #(:Basic-Latin :Latin-1-Supplement :Latin-Extended-A :Latin-Extended-B
+    :IPA-Extensions :Spacing-Modifier-Letters :Combining-Diacritical-Marks
+    :Greek-and-Coptic :Cyrillic :Cyrillic-Supplement :Armenian :Hebrew :Arabic
+    :Syriac :Arabic-Supplement :Thaana :NKo :Samaritan :Mandaic
+    :Arabic-Extended-A :Devanagari :Bengali :Gurmukhi :Gujarati :Oriya :Tamil
+    :Telugu :Kannada :Malayalam :Sinhala :Thai :Lao :Tibetan :Myanmar :Georgian
+    :Hangul-Jamo :Ethiopic :Ethiopic-Supplement :Cherokee
+    :Unified-Canadian-Aboriginal-Syllabics :Ogham :Runic :Tagalog :Hanunoo
+    :Buhid :Tagbanwa :Khmer :Mongolian
+    :Unified-Canadian-Aboriginal-Syllabics-Extended :Limbu :Tai-Le :New-Tai-Lue
+    :Khmer-Symbols :Buginese :Tai-Tham :Combining-Diacritical-Marks-Extended
+    :Balinese :Sundanese :Batak :Lepcha :Ol-Chiki :Sundanese-Supplement
+    :Vedic-Extensions :Phonetic-Extensions :Phonetic-Extensions-Supplement
+    :Combining-Diacritical-Marks-Supplement :Latin-Extended-Additional
+    :Greek-Extended :General-Punctuation :Superscripts-and-Subscripts
+    :Currency-Symbols :Combining-Diacritical-Marks-for-Symbols
+    :Letterlike-Symbols :Number-Forms :Arrows :Mathematical-Operators
+    :Miscellaneous-Technical :Control-Pictures :Optical-Character-Recognition
+    :Enclosed-Alphanumerics :Box-Drawing :Block-Elements :Geometric-Shapes
+    :Miscellaneous-Symbols :Dingbats :Miscellaneous-Mathematical-Symbols-A
+    :Supplemental-Arrows-A :Braille-Patterns :Supplemental-Arrows-B
+    :Miscellaneous-Mathematical-Symbols-B :Supplemental-Mathematical-Operators
+    :Miscellaneous-Symbols-and-Arrows :Glagolitic :Latin-Extended-C :Coptic
+    :Georgian-Supplement :Tifinagh :Ethiopic-Extended :Cyrillic-Extended-A
+    :Supplemental-Punctuation :CJK-Radicals-Supplement :Kangxi-Radicals
+    :Ideographic-Description-Characters :CJK-Symbols-and-Punctuation :Hiragana
+    :Katakana :Bopomofo :Hangul-Compatibility-Jamo :Kanbun :Bopomofo-Extended
+    :CJK-Strokes :Katakana-Phonetic-Extensions :Enclosed-CJK-Letters-and-Months
+    :CJK-Compatibility :CJK-Unified-Ideographs-Extension-A
+    :Yijing-Hexagram-Symbols :CJK-Unified-Ideographs :Yi-Syllables :Yi-Radicals
+    :Lisu :Vai :Cyrillic-Extended-B :Bamum :Modifier-Tone-Letters
+    :Latin-Extended-D :Syloti-Nagri :Common-Indic-Number-Forms :Phags-pa
+    :Saurashtra :Devanagari-Extended :Kayah-Li :Rejang :Hangul-Jamo-Extended-A
+    :Javanese :Myanmar-Extended-B :Cham :Myanmar-Extended-A :Tai-Viet
+    :Meetei-Mayek-Extensions :Ethiopic-Extended-A :Latin-Extended-E
+    :Meetei-Mayek :Hangul-Syllables :Hangul-Jamo-Extended-B :High-Surrogates
+    :High-Private-Use-Surrogates :Low-Surrogates :Private-Use-Area
+    :CJK-Compatibility-Ideographs :Alphabetic-Presentation-Forms
+    :Arabic-Presentation-Forms-A :Variation-Selectors :Vertical-Forms
+    :Combining-Half-Marks :CJK-Compatibility-Forms :Small-Form-Variants
+    :Arabic-Presentation-Forms-B :Halfwidth-and-Fullwidth-Forms :Specials
+    :Linear-B-Syllabary :Linear-B-Ideograms :Aegean-Numbers
+    :Ancient-Greek-Numbers :Ancient-Symbols :Phaistos-Disc :Lycian :Carian
+    :Coptic-Epact-Numbers :Old-Italic :Gothic :Old-Permic :Ugaritic :Old-Persian
+    :Deseret :Shavian :Osmanya :Elbasan :Caucasian-Albanian :Linear-A
+    :Cypriot-Syllabary :Imperial-Aramaic :Palmyrene :Nabataean :Phoenician
+    :Lydian :Meroitic-Hieroglyphs :Meroitic-Cursive :Kharoshthi
+    :Old-South-Arabian :Old-North-Arabian :Manichaean :Avestan
+    :Inscriptional-Parthian :Inscriptional-Pahlavi :Psalter-Pahlavi :Old-Turkic
+    :Rumi-Numeral-Symbols :Brahmi :Kaithi :Sora-Sompeng :Chakma :Mahajani
+    :Sharada :Sinhala-Archaic-Numbers :Khojki :Khudawadi :Grantha :Tirhuta
+    :Siddham :Modi :Takri :Warang-Citi :Pau-Cin-Hau :Cuneiform
+    :Cuneiform-Numbers-and-Punctuation :Egyptian-Hieroglyphs :Bamum-Supplement
+    :Mro :Bassa-Vah :Pahawh-Hmong :Miao :Kana-Supplement :Duployan
+    :Shorthand-Format-Controls :Byzantine-Musical-Symbols :Musical-Symbols
+    :Ancient-Greek-Musical-Notation :Tai-Xuan-Jing-Symbols
+    :Counting-Rod-Numerals :Mathematical-Alphanumeric-Symbols :Mende-Kikakui
+    :Arabic-Mathematical-Alphabetic-Symbols :Mahjong-Tiles :Domino-Tiles
+    :Playing-Cards :Enclosed-Alphanumeric-Supplement
+    :Enclosed-Ideographic-Supplement :Miscellaneous-Symbols-and-Pictographs
+    :Emoticons :Ornamental-Dingbats :Transport-and-Map-Symbols
+    :Alchemical-Symbols :Geometric-Shapes-Extended :Supplemental-Arrows-C
+    :CJK-Unified-Ideographs-Extension-B :CJK-Unified-Ideographs-Extension-C
+    :CJK-Unified-Ideographs-Extension-D :CJK-Compatibility-Ideographs-Supplement
+    :Tags :Variation-Selectors-Supplement :Supplementary-Private-Use-Area-A
+    :Supplementary-Private-Use-Area-B))
 
 (defparameter *line-break-classes*
   (reverse-ucd-indices
@@ -210,6 +327,14 @@ Otherwise, returns NIL."
   (logbitp 5 (aref **character-misc-database**
                     (+ 5 (misc-index character)))))
 
+(defun bidi-mirroring-glyph (character)
+  #!+sb-doc
+  "Returns the mirror image of CHARACTER if it exists.
+Otherwise, returns NIL."
+  (when (mirrored-p character)
+    (let ((ret (gethash (char-code character) **bidi-mirroring-glyphs**)))
+      (when ret (code-char ret)))))
+
 (defun east-asian-width (character)
   #!+sb-doc
   "Returns the East Asian Width property of CHARACTER as
@@ -223,9 +348,42 @@ one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
 (defun script (character)
   #!+sb-doc
   "Returns the Script property of CHARACTER as a keyword.
-If a character does not have a known script, returns :UNKNOWN"
+If CHARACTER does not have a known script, returns :UNKNOWN"
   (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
            *scripts*))
+
+(defun char-block (character)
+  #!+sb-doc
+  "Returns the Unicode block in which CHARACTER resides as a keyword.
+If CHARACTER does not have a known block, returns :NO-BLOCK"
+  (let* ((code (char-code character))
+         (block-index (ordered-ranges-position code **block-ranges**)))
+    (if block-index
+        (aref *blocks* block-index) :no-block)))
+
+(defun unicode-1-name (character)
+  #!+sb-doc
+  "Returns the name assigned to CHARACTER in Unicode 1.0 if it is distinct
+from the name currently assigned to CHARACTER. Otherwise, returns NIL.
+This property has been officially obsoleted by the Unicode standard, and
+is only included for backwards compatibility."
+  (let* ((char-code (+ #x110000 (char-code character)))
+         (h-code (cdr (binary-search char-code
+                                     (car *unicode-character-name-database*)
+                                     :key #'car))))
+    (when h-code
+      ;; Remove UNICODE1_ prefix
+      (subseq (huffman-decode h-code *unicode-character-name-huffman-tree*) 9))))
+
+(defun age (character)
+  #!+sb-doc
+  "Returns the version of Unicode in which CHARACTER was assigned as a pair
+of values, both integers, representing the major and minor version respectively.
+If CHARACTER is not assigned in Unicode, returns NIL for both values."
+  (let* ((value (aref **character-misc-database** (+ 8 (misc-index character))))
+         (major (ash value -3))
+         (minor (ldb (byte 3 0) value)))
+    (if (zerop value) (values nil nil) (values major minor))))
 
 (defun hangul-syllable-type (character)
   #!+sb-doc
@@ -288,7 +446,7 @@ appear in an SBCL string. The line-breaking behavior of surrogates is undefined.
 
 (defun lowercase-p (character)
   #!+sb-doc
-  "Returns T if a CHARACTER has the Unicode property Lowercase and NIL otherwise"
+  "Returns T if CHARACTER has the Unicode property Lowercase and NIL otherwise"
   (or (eql (general-category character) :Ll) (proplist-p character :other-lowercase)))
 
 (defun cased-p (character)
@@ -329,7 +487,14 @@ NIL otherwise"
   #!+sb-doc
   "Returns T if CHARACTER is whitespace according to Unicode
 and NIL otherwise"
-  (proplist-p character :whitespace))
+  (proplist-p character :white-space))
+
+(defun hex-digit-p (character &key ascii)
+  #!+sb-doc
+  "Returns T if CHARACTER is a hexadecimal digit and NIL otherwise.
+If :ASCII is non-NIL, fullwidth equivalents of the Latin letters A through F
+are excluded."
+  (proplist-p character (if ascii :ascii-hex-digit :hex-digit)))
 
 (defun soft-dotted-p (character)
   #!+sb-doc
@@ -341,7 +506,7 @@ disappears when accents are placed on top of it. and NIL otherwise"
   #!+sb-doc
   "Returns T if CHARACTER is a Default_Ignorable_Code_Point"
   (and
-   (or (proplist-p character :other-default-ignorable)
+   (or (proplist-p character :other-default-ignorable-code-point)
        (eql (general-category character) :cf)
        (proplist-p character :variation-selector))
    (not
@@ -878,7 +1043,7 @@ The result is not guaranteed to have the same length as the input."
       ((<= #x1F1E6 cp #x1F1FF) :regional-indicator)
       ((and (or (eql gc :Mc)
                 (eql cp #x0E33) (eql cp #x0EB3))
-            (not (ord-member cp not-spacing-mark))) :spacing-mark)
+            (not (binary-search cp not-spacing-mark))) :spacing-mark)
       (t (hangul-syllable-type char)))))
 
 (defun graphemes (string &key as-vector)
@@ -951,9 +1116,9 @@ If :AS-VECTOR is specified, returns a vector of strings instead."
             (not (or (ideographic-p char)
                      (eql (line-break-class char) :sa)
                      (eql (script char) :hiragana)))) :aletter)
-      ((ord-member cp midnumlet) :midnumlet)
-      ((ord-member cp midletter) :midletter)
-      ((ord-member cp midnum) :midnum)
+      ((binary-search cp midnumlet) :midnumlet)
+      ((binary-search cp midletter) :midletter)
+      ((binary-search cp midnum) :midnum)
       ((or (and (eql gc :Nd) (not (<= #xFF10 cp #xFF19))) ;Fullwidth digits
            (eql cp #x066B)) :numeric)
       ((eql gc :Pc) :extendnumlet)
@@ -1046,8 +1211,8 @@ word breaking rules specified in UAX #29. Returns a list of strings"
       ((or (alphabetic-p char) (eql cp #x00A0) (eql cp #x05F3)) :oletter)
       ((or (and (eql gc :Nd) (not (<= #xFF10 cp #xFF19))) ;Fullwidth digits
            (<= #x066B cp #x066C)) :numeric)
-      ((ord-member cp aterms) :aterm)
-      ((ord-member cp scontinues) :scontinue)
+      ((binary-search cp aterms) :aterm)
+      ((binary-search cp scontinues) :scontinue)
       ((proplist-p char :sterm) :sterm)
       ((and (or (member gc '(:Po :Ps :Pe :Pf :Pi))
                 (eql (line-break-class char) :qu))

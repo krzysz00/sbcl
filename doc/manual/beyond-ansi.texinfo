@@ -679,13 +679,17 @@ assigned to form-feed (U+0C) by the ANSI standard.} or
 by giving its hexadecimal codepoint preceded by a ``U'', an optional
 ``+'', and an arbitrary number of leading zeros. You may also input the
 character directly into your source code if it can be encoded in your
-file.
+file. If a character had an assigned name in Unicode 1.0 that was
+distinct from its current name, you may also use that name (with spaces
+replaced by underscares) prefixed by ``UNICODE1_'' to specify the character.
 
 For example, you can specify the codepoint U+00E1 (``Latin
 Small Letter A With Acute'') as
 @itemize @bullet
 @item
 @code{#\LATIN_SMALL_LETTER_A_WITH_ACUTE}
+@item
+@code{#\UNICODE1_LATIN_SMALL_LETTER_A_ACUTE}
 @item
 @code{#\á} assuming a Unicode source file
 @item
@@ -715,11 +719,21 @@ codepoint.
 
 @include fun-sb-unicode-mirrored-p.texinfo
 
+@include fun-sb-unicode-bidi-mirroring-glyph.texinfo
+
+@include fun-sb-unicode-age.texinfo
+
 @include fun-sb-unicode-hangul-syllable-type.texinfo
 
 @include fun-sb-unicode-east-asian-width.texinfo
 
 @include fun-sb-unicode-script.texinfo
+
+@include fun-sb-unicode-char-block.texinfo
+
+@include fun-sb-unicode-unicode-1-name.texinfo
+
+@include fun-sb-unicode-proplist-p.texinfo
 
 @include fun-sb-unicode-uppercase-p.texinfo
 
@@ -738,6 +752,8 @@ codepoint.
 @include fun-sb-unicode-whitespace-p.texinfo
 
 @include fun-sb-unicode-soft-dotted-p.texinfo
+
+@include fun-sb-unicode-hex-digit-p.texinfo
 
 @include fun-sb-unicode-default-ignorable-p.texinfo
 

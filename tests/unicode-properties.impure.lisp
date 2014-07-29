@@ -36,10 +36,10 @@ is replaced with replacement."
 (defun test-line (line)
   (destructuring-bind (%cp %name %gc ccc %bidi decomp-map
                        %decimal-digit %digit %numeric
-                       %bidi-mirrored old-name old-comment
+                       %bidi-mirrored %old-name old-comment
                        simple-up simple-down simple-title)
       (split-string line #\;)
-    (declare (ignore decomp-map old-name old-comment simple-up
+    (declare (ignore decomp-map old-comment simple-up
                      simple-down simple-title))
     (let* ((cp (parse-integer %cp :radix 16))
            (char (code-char cp))
@@ -49,20 +49,28 @@ is replaced with replacement."
            ;; of U+1F5CF (PAGE) and the attendant standards-compliance issues2
            (name (unless (or (position #\< %name) (= cp #x1F5CF))
                    (substitute #\_ #\Space %name)))
+           (old-name (unless (string= %old-name "")
+                       (substitute #\_ #\Space %old-name)))
            (char-from-name (name-char name))
+           (char-from-old-name
+            (when old-name
+              (name-char (concatenate 'string "UNICODE1_" old-name))))
            (decimal-digit (parse-integer %decimal-digit :junk-allowed t))
            (digit (parse-integer %digit :junk-allowed t))
            (numeric (if (string= %numeric "") nil (read-from-string %numeric)))
            (bidi-mirrored (string= %bidi-mirrored "Y")))
       (when char-from-name
         (assert (char= char char-from-name)))
+      (when char-from-old-name
+        (assert (char= char char-from-old-name)))
       (assert (eql gc (general-category char)))
       (assert (= (parse-integer ccc) (combining-class char)))
       (assert (eql bidi (bidi-class char)))
       (assert (eql decimal-digit (decimal-value char)))
       (assert (eql digit (digit-value char)))
       (assert (eql numeric (numeric-value char)))
-      (assert (eql bidi-mirrored (mirrored-p char))))))
+      (assert (eql bidi-mirrored (mirrored-p char)))
+      (assert (string= old-name (unicode-1-name char))))))
 
 (defun test-property-reads ()
   (declare (optimize (debug 2)))
@@ -138,6 +146,98 @@ Wanted ~S, got ~S."
             do (test-property-line #'script (substitute #\- #\_ line))))))
 
 (test-script)
+
+(defun test-block ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/Blocks.txt"
+                     :external-format :ascii)
+    (with-test (:name (:script)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line
+                #'char-block
+                (replace
+                 (substitute #\- #\Space line)
+                 "; "
+                 :start1 (position #\; line)))))))
+
+(test-block)
+
+(defun test-proplist ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/PropList.txt"
+                     :external-format :ascii)
+    (with-test (:name (:proplist)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+         while line
+         unless (or (string= "" line) (eql 0 (position #\# line)))
+         do
+           (destructuring-bind (%codepoints value) (split-string line #\;)
+                 (let* ((codepoints (codepoint-or-range %codepoints))
+                        (property
+                         (intern (string-upcase
+                                  (substitute
+                                   #\- #\_
+                                   (subseq (remove #\Space value) 0
+                                           (position #\# (remove #\Space value)))))
+                          "KEYWORD")))
+                   (loop for i in codepoints do
+                        (unless (proplist-p (code-char i) property)
+                          (error "Character ~S should be ~S, but isn't."
+                                 (code-char i) property)))))))))
+
+(test-proplist)
+
+(defun test-bidi-mirroring-glyph ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/BidiMirroring.txt"
+                     :external-format :ascii)
+    (with-test (:name (:bidi-mirroring-glyph)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+         while line
+         unless (or (string= "" line) (eql 0 (position #\# line)))
+         do
+           (let* ((codepoints
+                   (split-string (subseq line 0 (position #\# line)) #\;))
+                  (chars
+                   (mapcar
+                    #'(lambda (s) (code-char (parse-integer s :radix 16)))
+                    codepoints)))
+             (unless (char= (bidi-mirroring-glyph (first chars)) (second chars))
+               (error "The mirroring glyph of ~S is not ~S, but ~S"
+                      (first chars) (second chars)
+                      (bidi-mirroring-glyph (first chars)))))))))
+
+(test-bidi-mirroring-glyph)
+
+(defun test-age ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/DerivedAge.txt"
+                     :external-format :ascii)
+    (with-test (:name (:age)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+         while line
+         unless (or (string= "" line) (eql 0 (position #\# line)))
+         do
+           (destructuring-bind (%codepoints %age)
+               (split-string (subseq line 0 (position #\# line)) #\;)
+             (let* ((range (codepoint-or-range %codepoints))
+                    (expected (mapcar #'parse-integer (split-string %age #\.))))
+               (loop for i in range
+                  for char = (code-char i)
+                  do
+                    (unless (equalp
+                             expected
+                             (multiple-value-list (age char)))
+                      (error "Character ~S should have age ~S, but has ~S instead."
+                             char expected (multiple-value-list (age char)))))))))))
+
+(test-age)
 
 (defun test-grapheme-break-class ()
   (declare (optimize (debug 2)))
