@@ -41,6 +41,18 @@
                      :element-type 'character)
         (read stream)))
 
+(defparameter **block-ranges**
+  '#.(with-open-file (stream
+                     (merge-pathnames
+                      (make-pathname
+                       :directory
+                       '(:relative :up :up "output")
+                       :name "blocks" :type "lisp-expr")
+                      sb!xc:*compile-file-truename*)
+                     :direction :input
+                     :element-type 'character)
+        (read stream)))
+
 (macrolet ((unicode-property-init ()
              (let ((proplist-dump
                     (with-open-file (stream
@@ -123,6 +135,23 @@
                         item))))))
     (recurse 0 (/ (length vector) 2))))
 
+;; Returns which range `item` was found in or NIL
+;; First range = 0, second range = 1 ...
+(defun ordered-ranges-position (item vector)
+  (labels ((recurse (start end)
+             (when (< start end)
+               (let* ((i (+ start (truncate (- end start) 2)))
+                      (index (* 2 i))
+                      (elt1 (svref vector index))
+                      (elt2 (svref vector (1+ index))))
+                 (cond ((< item elt1)
+                        (recurse start i))
+                       ((> item elt2)
+                        (recurse (+ 1 i) end))
+                       (t
+                        i))))))
+    (recurse 0 (/ (length vector) 2))))
+
 (defun proplist-p (character property)
   #!+sb-doc
   "Returns T if CHARACTER has the specified PROPERTY.
@@ -166,6 +195,74 @@ with underscores replaced by dashes."
      :Palmyrene :Duployan :Mende-Kikakui :Pau-Cin-Hau :Elbasan :Modi
      :Psalter-Pahlavi :Grantha :Mro :Siddham :Khojki :Nabataean :Tirhuta
      :Khudawadi :Old-North-Arabian :Warang-Citi :Linear-A :Old-Permic)))
+
+(defparameter *blocks*
+  #(:Basic-Latin :Latin-1-Supplement :Latin-Extended-A :Latin-Extended-B
+    :IPA-Extensions :Spacing-Modifier-Letters :Combining-Diacritical-Marks
+    :Greek-and-Coptic :Cyrillic :Cyrillic-Supplement :Armenian :Hebrew :Arabic
+    :Syriac :Arabic-Supplement :Thaana :NKo :Samaritan :Mandaic
+    :Arabic-Extended-A :Devanagari :Bengali :Gurmukhi :Gujarati :Oriya :Tamil
+    :Telugu :Kannada :Malayalam :Sinhala :Thai :Lao :Tibetan :Myanmar :Georgian
+    :Hangul-Jamo :Ethiopic :Ethiopic-Supplement :Cherokee
+    :Unified-Canadian-Aboriginal-Syllabics :Ogham :Runic :Tagalog :Hanunoo
+    :Buhid :Tagbanwa :Khmer :Mongolian
+    :Unified-Canadian-Aboriginal-Syllabics-Extended :Limbu :Tai-Le :New-Tai-Lue
+    :Khmer-Symbols :Buginese :Tai-Tham :Combining-Diacritical-Marks-Extended
+    :Balinese :Sundanese :Batak :Lepcha :Ol-Chiki :Sundanese-Supplement
+    :Vedic-Extensions :Phonetic-Extensions :Phonetic-Extensions-Supplement
+    :Combining-Diacritical-Marks-Supplement :Latin-Extended-Additional
+    :Greek-Extended :General-Punctuation :Superscripts-and-Subscripts
+    :Currency-Symbols :Combining-Diacritical-Marks-for-Symbols
+    :Letterlike-Symbols :Number-Forms :Arrows :Mathematical-Operators
+    :Miscellaneous-Technical :Control-Pictures :Optical-Character-Recognition
+    :Enclosed-Alphanumerics :Box-Drawing :Block-Elements :Geometric-Shapes
+    :Miscellaneous-Symbols :Dingbats :Miscellaneous-Mathematical-Symbols-A
+    :Supplemental-Arrows-A :Braille-Patterns :Supplemental-Arrows-B
+    :Miscellaneous-Mathematical-Symbols-B :Supplemental-Mathematical-Operators
+    :Miscellaneous-Symbols-and-Arrows :Glagolitic :Latin-Extended-C :Coptic
+    :Georgian-Supplement :Tifinagh :Ethiopic-Extended :Cyrillic-Extended-A
+    :Supplemental-Punctuation :CJK-Radicals-Supplement :Kangxi-Radicals
+    :Ideographic-Description-Characters :CJK-Symbols-and-Punctuation :Hiragana
+    :Katakana :Bopomofo :Hangul-Compatibility-Jamo :Kanbun :Bopomofo-Extended
+    :CJK-Strokes :Katakana-Phonetic-Extensions :Enclosed-CJK-Letters-and-Months
+    :CJK-Compatibility :CJK-Unified-Ideographs-Extension-A
+    :Yijing-Hexagram-Symbols :CJK-Unified-Ideographs :Yi-Syllables :Yi-Radicals
+    :Lisu :Vai :Cyrillic-Extended-B :Bamum :Modifier-Tone-Letters
+    :Latin-Extended-D :Syloti-Nagri :Common-Indic-Number-Forms :Phags-pa
+    :Saurashtra :Devanagari-Extended :Kayah-Li :Rejang :Hangul-Jamo-Extended-A
+    :Javanese :Myanmar-Extended-B :Cham :Myanmar-Extended-A :Tai-Viet
+    :Meetei-Mayek-Extensions :Ethiopic-Extended-A :Latin-Extended-E
+    :Meetei-Mayek :Hangul-Syllables :Hangul-Jamo-Extended-B :High-Surrogates
+    :High-Private-Use-Surrogates :Low-Surrogates :Private-Use-Area
+    :CJK-Compatibility-Ideographs :Alphabetic-Presentation-Forms
+    :Arabic-Presentation-Forms-A :Variation-Selectors :Vertical-Forms
+    :Combining-Half-Marks :CJK-Compatibility-Forms :Small-Form-Variants
+    :Arabic-Presentation-Forms-B :Halfwidth-and-Fullwidth-Forms :Specials
+    :Linear-B-Syllabary :Linear-B-Ideograms :Aegean-Numbers
+    :Ancient-Greek-Numbers :Ancient-Symbols :Phaistos-Disc :Lycian :Carian
+    :Coptic-Epact-Numbers :Old-Italic :Gothic :Old-Permic :Ugaritic :Old-Persian
+    :Deseret :Shavian :Osmanya :Elbasan :Caucasian-Albanian :Linear-A
+    :Cypriot-Syllabary :Imperial-Aramaic :Palmyrene :Nabataean :Phoenician
+    :Lydian :Meroitic-Hieroglyphs :Meroitic-Cursive :Kharoshthi
+    :Old-South-Arabian :Old-North-Arabian :Manichaean :Avestan
+    :Inscriptional-Parthian :Inscriptional-Pahlavi :Psalter-Pahlavi :Old-Turkic
+    :Rumi-Numeral-Symbols :Brahmi :Kaithi :Sora-Sompeng :Chakma :Mahajani
+    :Sharada :Sinhala-Archaic-Numbers :Khojki :Khudawadi :Grantha :Tirhuta
+    :Siddham :Modi :Takri :Warang-Citi :Pau-Cin-Hau :Cuneiform
+    :Cuneiform-Numbers-and-Punctuation :Egyptian-Hieroglyphs :Bamum-Supplement
+    :Mro :Bassa-Vah :Pahawh-Hmong :Miao :Kana-Supplement :Duployan
+    :Shorthand-Format-Controls :Byzantine-Musical-Symbols :Musical-Symbols
+    :Ancient-Greek-Musical-Notation :Tai-Xuan-Jing-Symbols
+    :Counting-Rod-Numerals :Mathematical-Alphanumeric-Symbols :Mende-Kikakui
+    :Arabic-Mathematical-Alphabetic-Symbols :Mahjong-Tiles :Domino-Tiles
+    :Playing-Cards :Enclosed-Alphanumeric-Supplement
+    :Enclosed-Ideographic-Supplement :Miscellaneous-Symbols-and-Pictographs
+    :Emoticons :Ornamental-Dingbats :Transport-and-Map-Symbols
+    :Alchemical-Symbols :Geometric-Shapes-Extended :Supplemental-Arrows-C
+    :CJK-Unified-Ideographs-Extension-B :CJK-Unified-Ideographs-Extension-C
+    :CJK-Unified-Ideographs-Extension-D :CJK-Compatibility-Ideographs-Supplement
+    :Tags :Variation-Selectors-Supplement :Supplementary-Private-Use-Area-A
+    :Supplementary-Private-Use-Area-B))
 
 (defparameter *line-break-classes*
   (reverse-ucd-indices
@@ -254,6 +351,15 @@ one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
 If a character does not have a known script, returns :UNKNOWN"
   (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
            *scripts*))
+
+(defun char-block (character)
+  #!+sb-doc
+  "Returns the Unicode block in which CHARACTER resides as a keyword.
+If a character does not have a known block, returns :NO-BLOCK"
+  (let* ((code (char-code character))
+         (block-index (ordered-ranges-position code **block-ranges**)))
+    (if block-index
+        (aref *blocks* block-index) :no-block)))
 
 (defun unicode-1-name (character)
   #!+sb-doc

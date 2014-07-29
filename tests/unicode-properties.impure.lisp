@@ -147,6 +147,24 @@ Wanted ~S, got ~S."
 
 (test-script)
 
+(defun test-block ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "../tools-for-build/Blocks.txt"
+                     :external-format :ascii)
+    (with-test (:name (:script)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line
+                #'char-block
+                (replace
+                 (substitute #\- #\Space line)
+                 "; "
+                 :start1 (position #\; line)))))))
+
+(test-block)
+
 (defun test-proplist ()
   (declare (optimize (debug 2)))
   (with-open-file (s "../tools-for-build/PropList.txt"

@@ -205,25 +205,6 @@ Length should be adjusted when the standard changes.")
        finally (return hash)))
 "Table of line break classes. Used in the creation of misc entries.")
 
-(defparameter *confusables*
-  (with-open-file (s (make-pathname :name "ConfusablesEdited" :type "txt"
-                                    :defaults *unicode-character-database*))
-    (loop for line = (read-line s nil nil) while line
-       unless (eql 0 (position #\# line))
-       collect (mapcar #'parse-codepoints (split-string line #\<))))
-  "List of confusable codepoint sets")
-
-(defparameter *bidi-mirroring-glyphs*
-  (with-open-file (s (make-pathname :name "BidiMirroring" :type "txt"
-                                    :defaults *unicode-character-database*))
-    (loop for line = (read-line s nil nil) while line
-       unless (eql 0 (position #\# line))
-       collect
-         (mapcar
-          #'(lambda (c) (parse-codepoints c :singleton-list nil))
-          (split-string (subseq line 0 (position #\# line)) #\;))))
-  "List of BIDI mirroring glyph pairs")
-
 (defvar *block-first* nil)
 
 
@@ -635,6 +616,39 @@ Length should be adjusted when the standard changes.")
        finally (return hash))))
 
 
+;;; Other properties
+(defparameter *confusables*
+  (with-open-file (s (make-pathname :name "ConfusablesEdited" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop for line = (read-line s nil nil) while line
+       unless (eql 0 (position #\# line))
+       collect (mapcar #'parse-codepoints (split-string line #\<))))
+  "List of confusable codepoint sets")
+
+(defparameter *bidi-mirroring-glyphs*
+  (with-open-file (s (make-pathname :name "BidiMirroring" :type "txt"
+                                    :defaults *unicode-character-database*))
+    (loop for line = (read-line s nil nil) while line
+       unless (eql 0 (position #\# line))
+       collect
+         (mapcar
+          #'(lambda (c) (parse-codepoints c :singleton-list nil))
+          (split-string (subseq line 0 (position #\# line)) #\;))))
+  "List of BIDI mirroring glyph pairs")
+
+(defparameter *block-ranges*
+  (with-open-file (stream (make-pathname :name "Blocks" :type "txt"
+                                         :defaults *unicode-character-database*))
+    (loop with result = (make-array (* 252 2) :fill-pointer 0)
+       for line = (read-line stream nil nil) while line
+       unless (or (string= line "") (position #\# line))
+       do
+         (map nil #'(lambda (x) (vector-push x result))
+              (parse-codepoint-range (car (split-string line #\;))))
+       finally (return result)))
+  "Vector of block starts and ends in a form acceptable to `ordered-ranges-position`.
+Used to look up block data.")
+
 ;;; Output code
 (defun write-codepoint (code-point stream)
   (write-byte (ldb (byte 8 16) code-point) stream)
@@ -879,4 +893,14 @@ Length should be adjusted when the standard changes.")
     (with-standard-io-syntax
       (let ((*print-pretty* t))
         (prin1 *bidi-mirroring-glyphs*))))
+  (with-open-file (*standard-output*
+                   (make-pathname :name "blocks"
+                                  :type "lisp-expr"
+                                  :defaults *output-directory*)
+                   :direction :output
+                   :if-exists :supersede
+                   :if-does-not-exist :create)
+    (with-standard-io-syntax
+      (let ((*print-pretty* t))
+        (prin1 *block-ranges*))))
   (values))

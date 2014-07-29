@@ -727,6 +727,8 @@ codepoint.
 
 @include fun-sb-unicode-script.texinfo
 
+@include fun-sb-unicode-char-block.texinfo
+
 @include fun-sb-unicode-unicode-1-name.texinfo
 
 @include fun-sb-unicode-proplist-p.texinfo
