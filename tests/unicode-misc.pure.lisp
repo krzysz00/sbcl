@@ -42,3 +42,12 @@
     (test-fn
      #'sb-unicode:lowercase :lt
      '(((#\I #\U+0301) . (#\i #\U+0307 #\U+0301))))))
+
+(with-test (:name (:cl-case-invertibility))
+  (loop for i from 0 below char-code-limit
+     for char = (code-char i)
+     do
+       (when (upper-case-p char)
+         (assert (char= char (char-upcase (char-downcase char)))))
+       (when (lower-case-p char)
+         (assert (char= char (char-downcase (char-upcase char)))))))
