@@ -36,10 +36,10 @@ is replaced with replacement."
 (defun test-line (line)
   (destructuring-bind (%cp %name %gc ccc %bidi decomp-map
                        %decimal-digit %digit %numeric
-                       %bidi-mirrored old-name old-comment
+                       %bidi-mirrored %old-name old-comment
                        simple-up simple-down simple-title)
       (split-string line #\;)
-    (declare (ignore decomp-map old-name old-comment simple-up
+    (declare (ignore decomp-map old-comment simple-up
                      simple-down simple-title))
     (let* ((cp (parse-integer %cp :radix 16))
            (char (code-char cp))
@@ -49,20 +49,28 @@ is replaced with replacement."
            ;; of U+1F5CF (PAGE) and the attendant standards-compliance issues2
            (name (unless (or (position #\< %name) (= cp #x1F5CF))
                    (substitute #\_ #\Space %name)))
+           (old-name (unless (string= %old-name "")
+                       (substitute #\_ #\Space %old-name)))
            (char-from-name (name-char name))
+           (char-from-old-name
+            (when old-name
+              (name-char (concatenate 'string "UNICODE1_" old-name))))
            (decimal-digit (parse-integer %decimal-digit :junk-allowed t))
            (digit (parse-integer %digit :junk-allowed t))
            (numeric (if (string= %numeric "") nil (read-from-string %numeric)))
            (bidi-mirrored (string= %bidi-mirrored "Y")))
       (when char-from-name
         (assert (char= char char-from-name)))
+      (when char-from-old-name
+        (assert (char= char char-from-old-name)))
       (assert (eql gc (general-category char)))
       (assert (= (parse-integer ccc) (combining-class char)))
       (assert (eql bidi (bidi-class char)))
       (assert (eql decimal-digit (decimal-value char)))
       (assert (eql digit (digit-value char)))
       (assert (eql numeric (numeric-value char)))
-      (assert (eql bidi-mirrored (mirrored-p char))))))
+      (assert (eql bidi-mirrored (mirrored-p char)))
+      (assert (string= old-name (unicode-1-name char))))))
 
 (defun test-property-reads ()
   (declare (optimize (debug 2)))

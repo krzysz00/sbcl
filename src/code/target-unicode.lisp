@@ -21,6 +21,10 @@
   (import 'SB!IMPL::**CHARACTER-CASES**)
   (import 'SB!IMPL::**CHARACTER-CASE-PAGES**)
   (import 'SB!IMPL::**CHARACTER-COLLATIONS**)
+  (import 'SB!IMPL::*UNICODE-CHARACTER-NAME-DATABASE*)
+  (import 'SB!IMPL::*UNICODE-CHARACTER-NAME-HUFFMAN-TREE*)
+  (import 'SB!IMPL::BINARY-SEARCH)
+  (import 'SB!IMPL::HUFFMAN-DECODE)
   (import 'SB!IMPL::MISC-INDEX)
   (import 'SB!IMPL::CLEAR-FLAG)
   (import 'SB!IMPL::PACK-3-CODEPOINTS))
@@ -254,6 +258,20 @@ one of the keywords :N (Narrow), :A (Ambiguous), :H (Halfwidth),
 If a character does not have a known script, returns :UNKNOWN"
   (gethash (aref **character-misc-database** (+ 6 (misc-index character)))
            *scripts*))
+
+(defun unicode-1-name (character)
+  #!+sb-doc
+  "Returns the name assigned to CHARACTER in Unicode 1.0 if it is distinct
+from the name currently assigned to CHARACTER. Otherwise, returns NIL.
+This property has been officially obsoleted by the Unicode standard, and
+is only included for backwards compatibility."
+  (let* ((char-code (+ #x110000 (char-code character)))
+         (h-code (cdr (binary-search char-code
+                                     (car *unicode-character-name-database*)
+                                     :key #'car))))
+    (when h-code
+      ;; Remove UNICODE1_ prefix
+      (subseq (huffman-decode h-code *unicode-character-name-huffman-tree*) 9))))
 
 (defun hangul-syllable-type (character)
   #!+sb-doc

@@ -462,7 +462,8 @@ name is that string, if one exists. Otherwise, NIL is returned."
                  (name-length (length name-string)))
             (cond
               (char-code
-               (code-char char-code))
+               (if (>= char-code #x110000)
+                   (code-char (- char-code #x110000)) (code-char char-code)))
               ((and (> name-length 1)
                     (char-equal (char name-string 0) #\U)
                     (loop for i from

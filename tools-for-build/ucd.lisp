@@ -331,7 +331,7 @@ Length should be adjusted when the standard changes.")
                             unicode-1-name iso-10646-comment simple-uppercase
                             simple-lowercase simple-titlecase)
       line
-    (declare (ignore unicode-1-name iso-10646-comment))
+    (declare (ignore iso-10646-comment))
     (if (and (> (length name) 8)
              (string= ", First>" name :start2 (- (length name) 8)))
         (progn
@@ -443,15 +443,23 @@ Length should be adjusted when the standard changes.")
               ;; has a consistent East Asian Width
               (loop for point from *block-first* to code-point do
                    (setf (gethash point *ucd-entries*) result)))
-            (values result (normalize-character-name name)))))))
+            (values result (normalize-character-name name)
+                    (normalize-character-name unicode-1-name)))))))
 
 (defun slurp-ucd-line (line)
   (let* ((split-line (split-string line #\;))
          (code-point (parse-integer (first split-line) :radix 16)))
-    (multiple-value-bind (encoding name)
+    (multiple-value-bind (encoding name unicode-1-name)
         (encode-ucd-line (cdr split-line) code-point)
       (setf (gethash code-point *ucd-entries*) encoding
-            (gethash code-point *unicode-names*) name))))
+            (gethash code-point *unicode-names*) name
+            ;; The Unicode-1-name is encoded at (codepoint + #x110000)
+            ;; This is above all of Unicode (no plane 18), so there will be no conflicts
+            ;; Also, the prefix UNICODE1_ is appended because there are characters c, d
+            ;; such that Unicode-1-name(c) = name(d) and c /= d
+            (gethash (+ #x110000 code-point) *unicode-names*)
+            (when unicode-1-name
+              (concatenate 'string "UNICODE1_" unicode-1-name))))))
 
 ;;; this fixes up the case conversion discrepancy between CL and
 ;;; Unicode: CL operators depend on char-downcase / char-upcase being
