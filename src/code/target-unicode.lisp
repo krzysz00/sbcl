@@ -108,24 +108,20 @@
           do (setf (gethash index hash) string))
     hash))
 
-(defun ord-member (item vector)
-  (let ((len (length vector)))
-    (when (or (< item (svref vector 0)) (> item (svref vector (1- len))))
-      (return-from ord-member nil))
-    (loop for i across vector do
-         (cond ((= item i) (return-from ord-member i))
-               ((< item i) (return-from ord-member nil))))
-    nil))
-
 (defun ordered-ranges-member (item vector)
-  (loop for i from 0 below (length vector) by 2 do
-       (let ((start (svref vector i))
-             (end (svref vector (1+ i))))
-         (cond
-           ((<= start item end)
-            (return-from ordered-ranges-member t))
-           ((< item start) (return-from ordered-ranges-member nil)) ;Too far
-           (t nil)))) nil)
+  (labels ((recurse (start end)
+             (when (< start end)
+               (let* ((i (+ start (truncate (- end start) 2)))
+                      (index (* 2 i))
+                      (elt1 (svref vector index))
+                      (elt2 (svref vector (1+ index))))
+                 (cond ((< item elt1)
+                        (recurse start i))
+                       ((> item elt2)
+                        (recurse (+ 1 i) end))
+                       (t
+                        item))))))
+    (recurse 0 (/ (length vector) 2))))
 
 (defun proplist-p (character property)
   #!+sb-doc
@@ -931,7 +927,7 @@ The result is not guaranteed to have the same length as the input."
       ((<= #x1F1E6 cp #x1F1FF) :regional-indicator)
       ((and (or (eql gc :Mc)
                 (eql cp #x0E33) (eql cp #x0EB3))
-            (not (ord-member cp not-spacing-mark))) :spacing-mark)
+            (not (binary-search cp not-spacing-mark))) :spacing-mark)
       (t (hangul-syllable-type char)))))
 
 (defun graphemes (string)
@@ -997,9 +993,9 @@ grapheme breaking rules specified in UAX #29, returning a list of strings."
             (not (or (ideographic-p char)
                      (eql (line-break-class char) :sa)
                      (eql (script char) :hiragana)))) :aletter)
-      ((ord-member cp midnumlet) :midnumlet)
-      ((ord-member cp midletter) :midletter)
-      ((ord-member cp midnum) :midnum)
+      ((binary-search cp midnumlet) :midnumlet)
+      ((binary-search cp midletter) :midletter)
+      ((binary-search cp midnum) :midnum)
       ((or (and (eql gc :Nd) (not (<= #xFF10 cp #xFF19))) ;Fullwidth digits
            (eql cp #x066B)) :numeric)
       ((eql gc :Pc) :extendnumlet)
@@ -1092,8 +1088,8 @@ word breaking rules specified in UAX #29. Returns a list of strings"
       ((or (alphabetic-p char) (eql cp #x00A0) (eql cp #x05F3)) :oletter)
       ((or (and (eql gc :Nd) (not (<= #xFF10 cp #xFF19))) ;Fullwidth digits
            (<= #x066B cp #x066C)) :numeric)
-      ((ord-member cp aterms) :aterm)
-      ((ord-member cp scontinues) :scontinue)
+      ((binary-search cp aterms) :aterm)
+      ((binary-search cp scontinues) :scontinue)
       ((proplist-p char :sterm) :sterm)
       ((and (or (member gc '(:Po :Ps :Pe :Pf :Pi))
                 (eql (line-break-class char) :qu))
