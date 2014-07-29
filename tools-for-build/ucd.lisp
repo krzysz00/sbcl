@@ -506,7 +506,7 @@ Length should be adjusted when the standard changes.")
        (let* ((new-misc (hash-misc gc bidi ccc digit decomp flags script lb true-age))
               (new-ucd (make-ucd
                         :misc new-misc
-                        :decomp (ucd-decomp (gethash code-point *ucd-entries*)))))x
+                        :decomp (ucd-decomp (gethash code-point *ucd-entries*)))))
          (setf (gethash code-point *ucd-entries*) new-ucd))))
 
 (defun slurp-ucd ()
