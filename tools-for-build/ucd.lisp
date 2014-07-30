@@ -120,9 +120,9 @@ Length should be adjusted when the standard changes.")
 ;; BN is the first BIDI class so that unallocated characters are BN
 ;; Uppercase in the CL sense must have GC = 0, lowercase must GC = 1
 (defparameter *general-categories*
-  (init-indices '("Lu" "Ll" "Lt" "Lm" "Lo" "Cc" "Cf" "Co" "Cs" "Mc"
-                  "Me" "Mn" "Nd" "Nl" "No" "Pc" "Pd" "Pe" "Pf" "Pi"
-                  "Po" "Ps" "Sc" "Sk" "Sm" "So" "Zl" "Zp" "Zs")))
+  (init-indices '("Lu" "Ll" "Lt" "Lm" "Lo" "Cc" "Cf" "Co" "Cs" "Cn"
+                  "Mc" "Me" "Mn" "Nd" "Nl" "No" "Pc" "Pd" "Pe" "Pf"
+                  "Pi" "Po" "Ps" "Sc" "Sk" "Sm" "So" "Zl" "Zp" "Zs")))
 (defparameter *bidi-classes*
   (init-indices '("BN" "AL" "AN" "B" "CS" "EN" "ES" "ET" "L" "LRE" "LRO"
                   "NSM" "ON" "PDF" "R" "RLE" "RLO" "S" "WS" "LRI" "RLI"
@@ -239,18 +239,60 @@ Length should be adjusted when the standard changes.")
             (error "Misc table too small."))
           (gethash list *misc-hash*)))))
 
+(defun ordered-ranges-member (item vector)
+  (labels ((recurse (start end)
+             (when (< start end)
+               (let* ((i (+ start (truncate (- end start) 2)))
+                      (index (* 2 i))
+                      (elt1 (svref vector index))
+                      (elt2 (svref vector (1+ index))))
+                 (cond ((< item elt1)
+                        (recurse start i))
+                       ((> item elt2)
+                        (recurse (+ 1 i) end))
+                       (t
+                        item))))))
+    (recurse 0 (/ (length vector) 2))))
+
+(defun unallocated-bidi-class (code-point)
+  ;; See tests/data/DerivedBidiClass.txt for more information
+  (flet ((in (vector class)
+           (when (ordered-ranges-member code-point vector)
+             (gethash class *bidi-classes*))))
+    (cond
+      ((in
+         #(#x0600 #x07BF #x08A0 #x08FF #xFB50 #xFDCF #xFDF0 #xFDFF #xFE70 #xFEFF
+           #x1EE00 #x1EEFF) "AL"))
+      ((in
+         #(#x0590 #x05FF #x07C0 #x089F #xFB1D #xFB4F #x10800 #x10FFF #x1E800 #x1EDFF
+           #x1EF00 #x1EFFF) "R"))
+      ((in #(#x20A0 #x20CF) "ET"))
+      ;; BN is non-characters and default-ignorable.
+      ;; Default-ignorable will be dealt with elsewhere
+      ((in #(#xFDD0 #xFDEF #xFFFE #xFFFF #x1FFFE #x1FFFF #x2FFFE #x2FFFF
+             #x3FFFE #x3FFFF #x4FFFE #x4FFFF #x5FFFE #x5FFFF #x6FFFE #x6FFFF
+             #x7FFFE #x7FFFF #x8FFFE #x8FFFF #x9FFFE #x9FFFF #xAFFFE #xAFFFF
+             #xBFFFE #xBFFFF #xCFFFE #xCFFFF #xDFFFE #xDFFFF #xEFFFE #xEFFFF
+             #xFFFFE #xFFFFF #x10FFFE #x10FFFF)
+            "BN"))
+      ((in #(#x0 #x10FFFF) "L"))
+      (t (error "Somehow we've gone too far in unallocated bidi determination")))))
+
 (defun complete-misc-table ()
   (loop for code-point from 0 to #x10FFFF do ; Flood-fil unallocated codepoints
        (unless (second (multiple-value-list (gethash code-point *ucd-entries*)))
          (let* ((unallocated-misc
-                 ;; unallocated characters have a GC index of 31 (not colliding with
-                 ;; any other GC), aren't digits, aren't interestingly bidi, and don't
-                 ;; decompose, combine, or have case. They have an East Asian Width
-                 ;; (eaw) of "N" (0), and a script, line breaking class, and age of 0
-                 ;; ("Unknown"), unless some of those properties are otherwise assigned
-                 `(31 0 0 128 0 ,(gethash code-point *east-asian-width-table* 0)
-                   0 ,(gethash code-point *line-break-class-table* 0)
-                   ,(gethash code-point *age-table* 0)))
+                 ;; unallocated characters have a GC of "Cn", aren't digits
+                 ;; (digit = 128), have a bidi that depends on their block, and
+                 ;; don't decompose, combine, or have case. They have an East
+                 ;; Asian Width (eaw) of "N" (0), and a script, line breaking
+                 ;; class, and age of 0 ("Unknown"), unless some of those
+                 ;; properties are otherwise assigned.
+                 `(,(gethash "Cn" *general-categories*)
+                    ,(unallocated-bidi-class code-point) 0 128 0
+                    ,(gethash code-point *east-asian-width-table* 0)
+                    0 ,(gethash code-point *line-break-class-table* 0)
+                    ,(gethash code-point *age-table* 0)))
                 (unallocated-index (apply #'hash-misc unallocated-misc))
                 (unallocated-ucd (make-ucd :misc unallocated-index :decomp 0)))
            (setf (gethash code-point *ucd-entries*) unallocated-ucd)))))

@@ -109,6 +109,18 @@ is replaced with replacement."
 Wanted ~S, got ~S."
                     (code-char i) expected (funcall fn (code-char i))))))))
 
+(defun test-bidi-class ()
+  (declare (optimize (debug 2)))
+  (with-open-file (s "data/DerivedBidiClass.txt" :external-format :ascii)
+    (with-test (:name (:bidi-class)
+                :skipped-on '(not :sb-unicode))
+      (loop for line = (read-line s nil nil)
+            while line
+            unless (or (string= "" line) (eql 0 (position #\# line)))
+            do (test-property-line #'bidi-class line)))))
+
+(test-bidi-class)
+
 (defun test-hangul-syllable-type ()
   (declare (optimize (debug 2)))
   (with-open-file (s "data/HangulSyllableType.txt" :external-format :ascii)
