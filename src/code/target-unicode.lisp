@@ -163,9 +163,9 @@ with underscores replaced by dashes."
 ;; WARNING: These have to be manually kept in sync with the values in ucd.lisp
 (defparameter *general-categories*
   (reverse-ucd-indices
-   '(:Lu :Ll :Lt :Lm :Lo :Cc :Cf :Co :Cs :Mc :Me :Mn :Nd :Nl
-     :No :Pc :Pd :Pe :Pf :Pi :Po :Ps :Sc :Sk :Sm :So :Zl :Zp
-     :Zs)))
+   '(:Lu :Ll :Lt :Lm :Lo :Cc :Cf :Co :Cs :Cn :Mc :Me :Mn :Nd
+     :Nl :No :Pc :Pd :Pe :Pf :Pi :Po :Ps :Sc :Sk :Sm :So :Zl
+     :Zp :Zs)))
 
 (defparameter *bidi-classes*
   (reverse-ucd-indices
@@ -278,9 +278,12 @@ with underscores replaced by dashes."
 (defun bidi-class (character)
   #!+sb-doc
   "Returns the bidirectional class of CHARACTER"
-  (gethash
-   (aref **character-misc-database** (+ 1 (misc-index character)))
-   *bidi-classes*))
+  (if (and (eql (general-category character) :Cn)
+           (default-ignorable-p character))
+      :Bn
+      (gethash
+       (aref **character-misc-database** (+ 1 (misc-index character)))
+       *bidi-classes*)))
 
 (defun combining-class (character)
   #!+sb-doc
