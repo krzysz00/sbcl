@@ -1038,7 +1038,6 @@ standard Lisp readtable when NIL."
         (old-escapes (copy-seq (token-buf-escapes token-buf)))
         (str-to-normalize (make-string (token-buf-fill-ptr token-buf)))
         (normalize-ptr 0) (escapes-ptr 0) new-colon)
-    ;; Prevent index errors by adding a senitel element
     (reset-read-buffer token-buf)
     (macrolet ((clear-str-to-normalize ()
                `(progn
