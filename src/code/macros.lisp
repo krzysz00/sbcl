@@ -58,11 +58,13 @@
                 ;; attempt this if TEST-FORM is the application of a
                 ;; special operator because of argument evaluation
                 ;; order issues.
-                ((and (typep test-form '(cons symbol list))
-                      (eq (info :function :kind (first test-form)) :function))
-                 (let ((name (first test-form))
-                       (args (mapcar #'process-place (rest test-form))))
-                   `(,name ,@args)))
+                ((when (typep test-form '(cons symbol list))
+                   (let ((name (first test-form)))
+                     (when (or (eq (info :function :kind name) :function)
+                               (and (typep env 'sb!kernel:lexenv)
+                                    (sb!c::functional-p
+                                     (cdr (assoc name (sb!c::lexenv-funs env))))))
+                       `(,name ,@(mapcar #'process-place (rest test-form)))))))
                 ;; For all other cases, just evaluate TEST-FORM and do
                 ;; not report any details if the assertion fails.
                 (t
@@ -198,7 +200,7 @@ invoked. In that case it will store into PLACE and start over."
            (defun sb!c::%define-compiler-macro
                (name definition lambda-list doc debug-name)
              ,@(unless set-p
-                 '((declare (ignore lambda-list debug-name))))
+                 '((declare (ignore lambda-list doc debug-name))))
              ;; FIXME: warn about incompatible lambda list with
              ;; respect to parent function?
              (setf (sb!xc:compiler-macro-function name) definition)
@@ -302,7 +304,7 @@ invoked. In that case it will store into PLACE and start over."
                       (null (cdr cases)))
                  (push `(t nil ,@forms) clauses))
                 ((and multi-p (listp keyoid))
-                 (setf keys (append keyoid keys))
+                 (setf keys (nconc (reverse keyoid) keys))
                  (check-clause keyoid)
                  (push `((or ,@(mapcar (lambda (key)
                                          `(,test ,keyform-value ',key))
@@ -328,6 +330,11 @@ invoked. In that case it will store into PLACE and start over."
                          nil
                          ,@forms)
                        clauses))))))
+    (setq keys
+          (nreverse (mapcon (lambda (tail)
+                              (unless (member (car tail) (cdr tail))
+                                (list (car tail))))
+                            keys)))
     (case-body-aux name keyform keyform-value clauses keys errorp proceedp
                    `(,(if multi-p 'member 'or) ,@keys))))
 
@@ -436,30 +443,21 @@ invoked. In that case it will store into PLACE and start over."
                                             &body forms-decls)
   (multiple-value-bind (forms decls)
       (parse-body forms-decls :doc-string-allowed nil)
-    ;; The ONCE-ONLY inhibits compiler note for unreachable code when
-    ;; END is true.
-    (once-only ((string string))
-      `(let ((,var
-              ,(cond ((null end)
-                      `(make-string-input-stream ,string ,(or start 0)))
-                     ((symbolp end)
-                      `(if ,end
-                           (make-string-input-stream ,string
-                                                     ,(or start 0)
-                                                     ,end)
-                           (make-string-input-stream ,string
-                                                     ,(or start 0))))
-                     (t
-                      `(make-string-input-stream ,string
-                                                 ,(or start 0)
-                                                 ,end)))))
+    `(let ((,var
+            ;; Should (WITH-INPUT-FROM-STRING (stream str :start nil :end 5))
+            ;; pass the explicit NIL, and thus get an error? It's logical
+            ;; because an explicit NIL does not mean "default" in any other
+            ;; string operation. So why does it here?
+            ,(if (null end)
+                 `(make-string-input-stream ,string ,@(if start (list start)))
+                 `(make-string-input-stream ,string ,(or start 0) ,end))))
          ,@decls
          (multiple-value-prog1
              (unwind-protect
                   (progn ,@forms)
                (close ,var))
            ,@(when index
-               `((setf ,index (string-input-stream-current ,var)))))))))
+               `((setf ,index (string-input-stream-current ,var))))))))
 
 (defmacro-mundanely with-output-to-string
     ((var &optional string &key (element-type ''character))
