@@ -253,6 +253,21 @@
   (assert-not-standard-readtable readtable '(setf readtable-case))
   (setf (%readtable-case readtable) case))
 
+(defun readtable-normalization (readtable)
+  #!+sb-doc
+  "Returns T if READTABLE normalizes strings to NFKC, and NIL otherwise.
+The READTABLE-NORMALIZATION of the standard readtable is T."
+  (%readtable-normalization readtable))
+
+(defun (setf readtable-normalization) (new-value readtable)
+  #!+sb-doc
+  "Sets the READTABLE-NORMALIZATION of the given READTABLE to NEW-VALUE.
+Pass T to make READTABLE normalize symbols to NFKC (the default behavior),
+and NIL to suppress normalization."
+  ;; This function does not accept a readtable designator, only a readtable.
+  (assert-not-standard-readtable readtable '(setf readtable-normalization))
+  (setf (%readtable-normalization readtable) new-value))
+
 (defun replace/eql-hash-table (to from &optional (transform #'identity))
   (maphash (lambda (k v) (setf (gethash k to) (funcall transform v))) from)
   to)
@@ -303,6 +318,8 @@
      #'copy-cmt-entry)
     (setf (readtable-case really-to-readtable)
           (readtable-case really-from-readtable))
+    (setf (readtable-normalization really-to-readtable)
+          (readtable-normalization really-from-readtable))
     really-to-readtable))
 
 (defun set-syntax-from-char (to-char from-char &optional
@@ -878,6 +895,7 @@ standard Lisp readtable when NIL."
 ;;; token in *READ-BUFFER*, and return two values:
 ;;; -- a list of the escaped character positions, and
 ;;; -- The position of the first package delimiter (or NIL).
+;;; Normalizes the input to NFKC before returning
 (defun internal-read-extended-token (stream firstchar escape-firstchar
                                      &aux (read-buffer *read-buffer*))
   (reset-read-buffer read-buffer)
@@ -893,10 +911,13 @@ standard Lisp readtable when NIL."
               (unread-char char stream)
               t)
              (t nil))
-       (values read-buffer
-               (or (plusp (fill-pointer (token-buf-escapes read-buffer)))
-                   seen-multiple-escapes)
-               colon))
+       (progn
+         (multiple-value-setq (read-buffer colon)
+           (normalize-read-buffer read-buffer colon))
+         (values read-buffer
+                 (or (plusp (fill-pointer (token-buf-escapes read-buffer)))
+                     seen-multiple-escapes)
+                 colon)))
     (cond ((single-escape-p char rt)
            ;; It can't be a number, even if it's 1\23.
            ;; Read next char here, so it won't be casified.
@@ -1007,6 +1028,44 @@ standard Lisp readtable when NIL."
   #!+sb-doc
   "the radix that Lisp reads numbers in")
 (declaim (type (integer 2 36) *read-base*))
+
+;; Normalize BUFFER to NFKC, ignoring ESCAPES, a list of escaped
+;; indices in reverse order. Returns a new list of escapes.
+(defun normalize-read-buffer (token-buf &optional colon)
+  (unless (readtable-normalization *readtable*)
+    (return-from normalize-read-buffer (values token-buf colon)))
+  (let ((current-buffer (copy-token-buf-string token-buf))
+        (old-escapes (copy-seq (token-buf-escapes token-buf)))
+        (str-to-normalize (make-string (token-buf-fill-ptr token-buf)))
+        (normalize-ptr 0) (escapes-ptr 0) new-colon)
+    (reset-read-buffer token-buf)
+    (macrolet ((clear-str-to-normalize ()
+               `(progn
+                  (loop for char across (sb!unicode:normalize-string
+                                         (subseq str-to-normalize 0 normalize-ptr)
+                                         :nfkc) do
+                       (ouch-read-buffer char token-buf))
+                  (setf normalize-ptr 0)))
+               (push-to-normalize (ch)
+                 (let ((ch-gen (gensym)))
+                   `(let ((,ch-gen ,ch))
+                      (setf (char str-to-normalize normalize-ptr) ,ch-gen)
+                      (incf normalize-ptr)))))
+      (loop for c across current-buffer
+         for i from 0
+         do
+           (if (and (< escapes-ptr (length old-escapes))
+                    (eql i (aref old-escapes escapes-ptr)))
+               (progn
+                 (clear-str-to-normalize)
+                 (ouch-read-buffer-escaped c token-buf)
+                 (incf escapes-ptr))
+               (progn
+                 (push-to-normalize c)
+                 (when (and (not new-colon) (eql c #\:))
+                   (setf new-colon i)))))
+      (clear-str-to-normalize)
+      (values token-buf new-colon))))
 
 ;;; Modify the read buffer according to READTABLE-CASE, ignoring
 ;;; ESCAPES. ESCAPES is a vector of the escaped indices.
@@ -1373,6 +1432,7 @@ extended <package-name>::<form-in-package> syntax."
       (unless (zerop colons)
         (simple-reader-error
          stream "too many colons in ~S" (copy-token-buf-string buf)))
+      (setf buf (normalize-read-buffer buf))
       (casify-read-buffer buf)
       (setq colons 1)
       (setq package-designator
@@ -1416,6 +1476,7 @@ extended <package-name>::<form-in-package> syntax."
                               package-designator))
         (t (go SYMBOL)))
       RETURN-SYMBOL
+      (setf buf (normalize-read-buffer buf))
       (casify-read-buffer buf)
       (let ((pkg (if package-designator
                      (reader-find-package package-designator stream)

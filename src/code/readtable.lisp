@@ -80,4 +80,5 @@ types for the Common Lisp expression reader."
    (make-array base-char-code-limit :initial-element #'undefined-macro-char)
    :type (simple-vector #.base-char-code-limit))
   (character-macro-hash-table (make-hash-table) :type hash-table)
-  (%readtable-case :upcase :type (member :upcase :downcase :preserve :invert)))
+  (%readtable-case :upcase :type (member :upcase :downcase :preserve :invert))
+  (%readtable-normalization #!+sb-unicode t #!-sb-unicode nil :type boolean))
