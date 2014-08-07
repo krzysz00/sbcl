@@ -1083,6 +1083,7 @@ possibly temporarily, because it might be used internally."
                "MAKE-UNPRINTABLE-OBJECT"
                "POWER-OF-TWO-CEILING"
                "PRINT-NOT-READABLE-ERROR"
+               "REPLACE/EQL-HASH-TABLE"
 
                ;; ..and macros..
                "COLLECT"
@@ -2611,7 +2612,7 @@ SB-KERNEL) have been undone, but probably more remain."
                "UNICODE<="
                "UNICODE>"
                "UNICODE>="
-               "CONFUSABLE-P"))
+               #!+sb-unicode "CONFUSABLE-P"))
 
    #s(sb-cold:package-data
       :name "SB!UNIX"
