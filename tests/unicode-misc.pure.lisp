@@ -9,6 +9,7 @@
 ;;;; absolutely no warranty. See the COPYING and CREDITS files for
 ;;;; more information.
 
+#+sb-unicode
 (with-test (:name (:unicode-casing)
                   :skipped-on '(not :sb-unicode))
   (labels ((str (&rest chars)
@@ -52,6 +53,7 @@
        (when (lower-case-p char)
          (assert (char= char (char-downcase (char-upcase char)))))))
 
+#+sb-unicode
 (with-test (:name (:basic-confusable-detection)
                   :skipped-on '(not :sb-unicode))
   (assert (sb-unicode:confusable-p "l0" "1O"))

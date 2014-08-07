@@ -98,6 +98,7 @@
                         (setf (gethash k hash) v)
                         (setf list (cddr list)))
                       (setf **proplist-properties** hash))
+                    #!+sb-unicode
                     (let ((hash (make-hash-table :test #'equal)))
                       (loop for set in ',confusable-sets
                          for items = (mapcar #'(lambda (item)
@@ -623,19 +624,22 @@ disappears when accents are placed on top of it. and NIL otherwise"
      (if (= 0 (rem (- cp #xac00) 28)) :LV :LVT))))
 
 (defun primary-composition (char1 char2)
-  (let ((c1 (char-code char1))
-        (c2 (char-code char2)))
-    (cond
-      ((gethash (dpb (char-code char1) (byte 21 21) (char-code char2))
-                **character-primary-compositions**))
-      ((and (eql (composition-hangul-syllable-type c1) :L)
-            (eql (composition-hangul-syllable-type c2) :V))
-       (let ((lindex (- c1 #x1100))
-             (vindex (- c2 #x1161)))
-         (code-char (+ #xac00 (* lindex 588) (* vindex 28)))))
-      ((and (eql (composition-hangul-syllable-type c1) :LV)
-            (eql (composition-hangul-syllable-type c2) :T))
-       (code-char (+ c1 (- c2 #x11a7)))))))
+  (flet ((maybe (fn x) (when x (funcall fn x))))
+    (let ((c1 (char-code char1))
+          (c2 (char-code char2)))
+      (maybe
+       #'code-char
+       (cond
+         ((gethash (dpb c1 (byte 21 21) c2)
+                   **character-primary-compositions**))
+         ((and (eql (composition-hangul-syllable-type c1) :L)
+               (eql (composition-hangul-syllable-type c2) :V))
+          (let ((lindex (- c1 #x1100))
+                (vindex (- c2 #x1161)))
+            (+ #xac00 (* lindex 588) (* vindex 28))))
+         ((and (eql (composition-hangul-syllable-type c1) :LV)
+               (eql (composition-hangul-syllable-type c2) :T))
+          (+ c1 (- c2 #x11a7))))))))
 
 ;;; This implements a sequence data structure, specialized for
 ;;; efficient deletion of characters at an index, along with tolerable
@@ -886,6 +890,8 @@ Win32 only)."
   (when (eq locale t) (setf locale (get-user-locale)))
   (string-somethingcase
    #'char-uppercase string
+   #!-sb-unicode (constantly nil)
+   #!+sb-unicode ;; code-char with a constant > 255 breaks the build
    #'(lambda (char index len)
        (declare (ignore len))
        (cond
@@ -911,6 +917,8 @@ The result is not guaranteed to have the same length as the input.
   (when (eq locale t) (setf locale (get-user-locale)))
   (string-somethingcase
    #'char-lowercase string
+   #!-sb-unicode (constantly nil)
+   #!+sb-unicode
    #'(lambda (char index len)
        (cond
          ((and (char= char (code-char #x03A3))
@@ -984,9 +992,11 @@ be longer than the input.
       for initial = (char word first-cased)
       for rest = (subseq word (1+ first-cased))
       do (let ((up (char-titlecase initial)) (down (lowercase rest)))
+           #!+sb-unicode
            (when (and (or (eql locale :tr) (eql locale :az))
                       (eql initial #\i))
              (setf up (list (code-char #x0130))))
+           #!+sb-unicode
            (when (and (eql locale :lt)
                       (soft-dotted-p initial)
                       (eql (char down
@@ -1698,6 +1708,7 @@ with variable-weight characters, as described in UTS #10"
 
 ;;; Confusable detection
 
+#!+sb-unicode
 (defun canonically-deconfuse (string)
   (let (ret (i 0) new-i (len (length string))
             best-node)
@@ -1714,6 +1725,7 @@ with variable-weight characters, as described in UTS #10"
          (setf best-node nil new-i nil))
     (apply #'concatenate 'string (nreverse ret))))
 
+#!+sb-unicode
 (defun confusable-p (string1 string2 &key (start1 0) end1 (start2 0) end2)
   #!+sb-doc
   "Determines whether STRING1 and STRING2 could be visually confusable
