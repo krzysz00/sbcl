@@ -338,6 +338,7 @@
     (test-reading "#\\-") ; should not copy the token buffer
     ))
 
+
 (with-test (:name :sharp-star-empty-multiple-escapes)
   (assert (eq (handler-case (read-from-string "#*101||1")
                 (sb-int:simple-reader-error () :win))
