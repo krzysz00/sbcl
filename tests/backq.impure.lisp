@@ -190,6 +190,25 @@
                            (simple-condition-format-control c))))
                0)))
 
+(with-test (:name :backq-vector)
+  (assert-error (eval (read-from-string "`#(,@#())")))
+  (assert-error (eval (read-from-string "`#(,@`#())")))
+  (assert (equalp `#(,@(list 1 2 3)) #(1 2 3)))
+  (assert (equalp `#(0 ,@(list 1 2 3)) #(0 1 2 3)))
+  (assert (equalp `#(,@(list 1 2 3) ,4) #(1 2 3 4))))
+
+(with-test (:name :backq-standard-list-constructors)
+  (assert (equal (macroexpand '`(,.(list 1 2 3) 4))
+                 '(nconc (list 1 2 3) '(4))))
+  (assert (equal (funcall (compiler-macro-function 'sb-int:quasiquote)
+                          '`(,.(list 1 2 3) 4) nil)
+                 '(nconc (list 1 2 3) '(4))))
+  (assert (equal (macroexpand '`(,@(list 1 2 3) 4))
+                 '(append (list 1 2 3) '(4))))
+  (assert (equal (funcall (compiler-macro-function 'sb-int:quasiquote)
+                          '`(,@(list 1 2 3) 4) nil)
+                 '(sb-impl::|Append| (list 1 2 3) '(4)))))
+
 (in-package sb-impl)
 
 (test-util:with-test (:name :backquote-more-weirdness)
