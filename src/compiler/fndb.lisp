@@ -218,6 +218,9 @@
 (defknown (use-package unuse-package)
   ((or list package-designator) &optional package-designator) (eql t))
 (defknown find-all-symbols (string-designator) list (flushable))
+;; private
+(defknown package-iter-step (fixnum index package-hashtable list)
+  (values fixnum index package-hashtable list))
 
 ;;;; from the "Numbers" chapter:
 
@@ -632,13 +635,15 @@
                     (:test-not callable) (:start index) (:from-end t)
                     (:end sequence-end) (:key callable))
   (or index null)
-  (foldable flushable call))
+  (foldable flushable call)
+  :derive-type #'position-derive-type)
 
 (defknown (position-if position-if-not)
   (callable sequence &rest t &key (:from-end t) (:start index)
    (:end sequence-end) (:key callable))
   (or index null)
-  (foldable flushable call))
+  (foldable flushable call)
+  :derive-type #'position-derive-type)
 
 (defknown count (t sequence &rest t &key
                    (:test callable) (:test-not callable) (:start index)

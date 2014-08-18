@@ -42,7 +42,7 @@
 
 ;;; FIXME: These forward declarations should be moved somewhere earlier,
 ;;; or discarded.
-(declaim (special *package* *keyword-package* *read-base*))
+(declaim (special *package* *read-base*))
 
 ;;;; reader errors
 
@@ -70,7 +70,7 @@
                        +char-attr-constituent+))))
 
 (defun set-cat-entry (char newvalue &optional (rt *readtable*))
-  (declare (type (unsigned-byte 8) newvalue) (readtable rt))
+  (declare (character char) (type (unsigned-byte 8) newvalue) (readtable rt))
   (if (typep char 'base-char)
       (setf (elt (character-attribute-array rt) (char-code char)) newvalue)
       (if (= newvalue +char-attr-constituent+)
@@ -82,7 +82,9 @@
 ;; Set the character-macro-table entry without coercing NEW-VALUE.
 ;; As used by set-syntax-from-char it must always process "raw" values.
 (defun set-cmt-entry (char new-value &optional (rt *readtable*))
-  (declare (type (or fdefn callable) new-value))
+  (declare (character char)
+           (type (or null function fdefn) new-value)
+           (type readtable rt))
   (if (typep char 'base-char)
       (setf (svref (character-macro-array rt) (char-code char)) new-value)
       (if new-value ; never store NILs
@@ -94,7 +96,7 @@
 ;;; be either a function-designator or NIL, except that we store
 ;;; symbols not as themselves but as their #<fdefn>.
 (defun get-raw-cmt-entry (char readtable)
-  (declare (readtable readtable))
+  (declare (character char) (readtable readtable))
   (if (typep char 'base-char)
       (svref (character-macro-array readtable) (char-code char))
       ;; Note: DEFAULT here is NIL, not #'UNDEFINED-MACRO-CHAR, so
@@ -104,6 +106,7 @@
 
 ;; As above but get the entry for SUB-CHAR in a dispatching macro table.
 (defun get-raw-cmt-dispatch-entry (sub-char sub-table)
+  (declare (character sub-char))
   (if (typep sub-char 'base-char)
       (svref (truly-the (simple-vector #.base-char-code-limit)
                         (cdr (truly-the cons sub-table)))
@@ -134,8 +137,8 @@
 ;;; table. As per ANSI #'GET-MACRO-CHARACTER and #'SET-MACRO-CHARACTER,
 ;;; a function value represents itself, and a NIL value represents the
 ;;; default behavior.
-(defmacro with-char-macro-result ((result-var supplied-p-var)
-                                  (stream char) &body body)
+(defmacro !with-char-macro-result ((result-var supplied-p-var)
+                                   (stream char) &body body)
   (with-unique-names (proc)
     `(dx-flet ((,proc (&optional (,result-var nil ,supplied-p-var) &rest junk)
                  (declare (ignore junk)) ; is this ANSI-specified?
@@ -703,7 +706,7 @@ standard Lisp readtable when NIL."
          (cond ((eq char +EOF+) (return eof-value))
                ((whitespace[2]p char))
                (t
-                (with-char-macro-result (result result-p) (stream char)
+                (!with-char-macro-result (result result-p) (stream char)
                   ;; Repeat if macro returned nothing.
                   (when result-p
                     (return (unless *read-suppress* result))))))))
@@ -729,7 +732,7 @@ standard Lisp readtable when NIL."
 ;;; for functions that want comments to return so that they can look
 ;;; past them. We assume CHAR is not whitespace.
 (defun read-maybe-nothing (stream char)
-  (with-char-macro-result (retval retval-p) (stream char)
+  (!with-char-macro-result (retval retval-p) (stream char)
     (if retval-p (list retval))))
 
 (defun read (&optional (stream *standard-input*)
@@ -896,9 +899,10 @@ standard Lisp readtable when NIL."
   (simple-reader-error stream "unmatched close parenthesis"))
 
 ;;; Read from the stream up to the next delimiter. Leave the resulting
-;;; token in *READ-BUFFER*, and return two values:
-;;; -- a list of the escaped character positions, and
-;;; -- The position of the first package delimiter (or NIL).
+;;; token in *READ-BUFFER*, and return three values:
+;;; -- a TOKEN-BUF
+;;; -- whether any escape character was seen (even if no character is escaped)
+;;; -- whether a package delimiter character was seen
 ;;; Normalizes the input to NFKC before returning
 (defun internal-read-extended-token (stream firstchar escape-firstchar
                                      &aux (read-buffer *read-buffer*))
@@ -951,7 +955,7 @@ standard Lisp readtable when NIL."
                       (constituentp char rt)
                       (eql (get-constituent-trait char)
                            +char-attr-package-delimiter+))
-             (setq colon (token-buf-fill-ptr read-buffer)))
+             (setq colon t))
            (ouch-read-buffer char read-buffer)))))
 
 ;;;; character classes
@@ -961,7 +965,7 @@ standard Lisp readtable when NIL."
 ;;; FIXME: why aren't these ATT-getting forms using GET-CAT-ENTRY?
 ;;; Because we've cached the readtable tables?
 (defmacro char-class (char attarray atthash)
-  `(let ((att (if (typep ,char 'base-char)
+  `(let ((att (if (typep (truly-the character ,char) 'base-char)
                   (aref ,attarray (char-code ,char))
                   (gethash ,char ,atthash +char-attr-constituent+))))
      (declare (fixnum att))
@@ -976,7 +980,7 @@ standard Lisp readtable when NIL."
 ;;; Return the character class for CHAR, which might be part of a
 ;;; rational number.
 (defmacro char-class2 (char attarray atthash)
-  `(let ((att (if (typep ,char 'base-char)
+  `(let ((att (if (typep (truly-the character ,char) 'base-char)
                   (aref ,attarray (char-code ,char))
                   (gethash ,char ,atthash +char-attr-constituent+))))
      (declare (fixnum att))
@@ -995,7 +999,7 @@ standard Lisp readtable when NIL."
 ;;; rational or floating number. (Assume that it is a digit if it
 ;;; could be.)
 (defmacro char-class3 (char attarray atthash)
-  `(let ((att (if (typep ,char 'base-char)
+  `(let ((att (if (typep (truly-the character ,char) 'base-char)
                   (aref ,attarray (char-code ,char))
                   (gethash ,char ,atthash +char-attr-constituent+))))
      (declare (fixnum att))
@@ -1043,7 +1047,7 @@ standard Lisp readtable when NIL."
   (let ((current-buffer (copy-token-buf-string token-buf))
         (old-escapes (copy-seq (token-buf-escapes token-buf)))
         (str-to-normalize (make-string (token-buf-fill-ptr token-buf)))
-        (normalize-ptr 0) (escapes-ptr 0) new-colon)
+        (normalize-ptr 0) (escapes-ptr 0))
     (reset-read-buffer token-buf)
     (macrolet ((clear-str-to-normalize ()
                `(progn
@@ -1066,12 +1070,9 @@ standard Lisp readtable when NIL."
                  (clear-str-to-normalize)
                  (ouch-read-buffer-escaped c token-buf)
                  (incf escapes-ptr))
-               (progn
-                 (push-to-normalize c)
-                 (when (and (not new-colon) (eql c #\:))
-                   (setf new-colon i)))))
+               (push-to-normalize c)))
       (clear-str-to-normalize)
-      (values token-buf new-colon))))
+      (values token-buf colon))))
 
 ;;; Modify the read buffer according to READTABLE-CASE, ignoring
 ;;; ESCAPES. ESCAPES is a vector of the escaped indices.

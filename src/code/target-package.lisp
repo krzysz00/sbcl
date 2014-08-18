@@ -537,9 +537,7 @@ Experimental: interface subject to change."
 (defvar *in-package-init*)
 
 ;;; pending USE-PACKAGE arguments saved up while *IN-PACKAGE-INIT* is true
-(defvar *!deferred-use-packages*)
-(!cold-init-forms
-  (setf *!deferred-use-packages* nil))
+(!defvar *!deferred-use-packages* nil)
 
 (define-condition bootstrap-package-not-found (condition)
   ((name :initarg :name :reader bootstrap-package-name)))
@@ -552,7 +550,7 @@ Experimental: interface subject to change."
   "If PACKAGE-DESIGNATOR is a package, it is returned. Otherwise PACKAGE-DESIGNATOR
 must be a string designator, in which case the package it names is located and returned.
 
-As an SBCL extension, the current package may effect the way a package name is
+As an SBCL extension, the current package may affect the way a package name is
 resolved: if the current package has local nicknames specified, package names
 matching those are resolved to the packages associated with them instead.
 
@@ -604,9 +602,8 @@ REMOVE-PACKAGE-LOCAL-NICKNAME, and the DEFPACKAGE option :LOCAL-NICKNAMES."
 ;;; Return a list of packages given a package designator or list of
 ;;; package designators, or die trying.
 (defun package-listify (thing)
-  (let ((res ()))
-    (dolist (thing (if (listp thing) thing (list thing)) res)
-      (push (find-undeleted-package-or-lose thing) res))))
+  (mapcar #'find-undeleted-package-or-lose
+          (if (listp thing) thing (list thing))))
 
 ;;; Make a package name into a simple-string.
 (defun package-namify (n)
@@ -659,6 +656,10 @@ REMOVE-PACKAGE-LOCAL-NICKNAME, and the DEFPACKAGE option :LOCAL-NICKNAMES."
          (if (zerop (the fixnum (aref hash i)))
              (decf (package-hashtable-free table))
              (decf (package-hashtable-deleted table)))
+         ;; This order is critical but the code is not strong enough as is.
+         ;; There should be a write barrier in here somewhere, otherwise
+         ;; in a system which allows out-of-order memory writes,
+         ;; another thread could see a valid hash but 0 for the symbol.
          (setf (svref vec i) symbol)
          (setf (aref hash i)
                (entry-hash (length (symbol-name symbol))
@@ -685,6 +686,30 @@ REMOVE-PACKAGE-LOCAL-NICKNAME, and the DEFPACKAGE option :LOCAL-NICKNAMES."
 ;;; is bound to the index, or NIL if it is not present. SYMBOL-VAR
 ;;; is bound to the symbol. LENGTH and HASH are the length and sxhash
 ;;; of STRING. ENTRY-HASH is the entry-hash of the string and length.
+
+#| WITH-SYMBOL is supposedly thread-safe for single-writer/multi-reader,
+   but it can crash in two ways during resize of a package-hashtable:
+   - MAKE-OR-REMAKE-PACKAGE-HASHTABLE assigns the TABLE slot before
+     the HASH slot, so the initial index computed into HASH can be wrong.
+   - If a hash-vector element is a positive hit but there is a zero in the
+     corresponding location in the symbol-vector, it calls (SYMBOL-NAME 0).
+Example:
+* (let ((h (sxhash "GG"))) (values (mod h 17) (entry-hash 2 h))) => 8, 238
+* (let ((h (sxhash "$o"))) (values (mod h 37) (entry-hash 2 h))) => 8, 238
+* (intern "GG" (make-package "X"))
+;; Simulate growth of TABLE to the next larger size. Also suppose that the
+;; the rehashing thread is switched out by the OS after this setf.
+* (setf (package-hashtable-table (package-internal-symbols (find-package "X")))
+        (make-array 37)) ; the next size up
+* (find-symbol "A" "X") ; failure mode 1 - bad index computation
+debugger invoked on a SB-INT:INVALID-ARRAY-INDEX-ERROR:
+* (find-symboL "$o" "X") ; failure mode 2 - hash matched but no symbol present
+debugger invoked on a TYPE-ERROR: The value 0 is not of type SYMBOL.
+
+Probably we need to atomically store both vectors by keeping them in a cons
+which is freshly allocated whenever the vectors are reallocated.
+It might also work to store the zero-filled hash vector first. |#
+
 (defmacro with-symbol ((index-var symbol-var table string length sxhash
                                   entry-hash)
                        &body forms)
@@ -1296,10 +1321,9 @@ uninterned."
           (syms ()))
       ;; Punt any symbols that are already external.
       (dolist (sym symbols)
-        (multiple-value-bind (s w)
+        (multiple-value-bind (s found)
             (find-external-symbol (symbol-name sym) package)
-          (declare (ignore s))
-          (unless (or w (member sym syms))
+          (unless (or (and found (eq s sym)) (member sym syms))
             (push sym syms))))
       (with-single-package-locked-error ()
         (when syms

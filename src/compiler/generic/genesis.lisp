@@ -616,6 +616,26 @@
                        sb!vm:vector-length-slot
                        (make-fixnum-descriptor length))
     des))
+
+;; Make a structure and set the header word and layout.
+;; LAYOUT-LENGTH is as returned by the like-named function.
+(defun allocate-structure-object (gspace layout-length layout)
+  ;; The math in here is best illustrated by two examples:
+  ;; even: size 4 => request to allocate 5 => rounds up to 6, logior => 5
+  ;; odd : size 5 => request to allocate 6 => no rounding up, logior => 5
+  ;; In each case, the length of the memory block is even.
+  ;; ALLOCATE-BOXED-OBJECT performs the rounding. It must be supplied
+  ;; the number of words minimally needed, counting the header itself.
+  ;; The number written into the header (%INSTANCE-LENGTH) is always odd.
+  (let ((des (allocate-boxed-object gspace
+                                    (1+ layout-length)
+                                    sb!vm:instance-pointer-lowtag)))
+    (write-memory des
+                  (make-other-immediate-descriptor
+                   (logior layout-length 1)
+                   sb!vm:instance-header-widetag))
+    (write-wordindexed des sb!vm:instance-slots-offset layout)
+    des))
 
 ;;;; copying simple objects into the cold core
 
@@ -940,6 +960,8 @@ core and return a descriptor to it."
 (defvar *layout-layout*)
 
 (defconstant target-layout-length
+  ;; LAYOUT-LENGTH counts the number of words in an instance,
+  ;; including the layout itself as 1 word
   (layout-length (find-layout 'layout)))
 
 (defun target-layout-index (slot-name)
@@ -981,22 +1003,9 @@ core and return a descriptor to it."
                           descriptor)
                 make-cold-layout))
 (defun make-cold-layout (name length inherits depthoid nuntagged)
-  (let ((result (allocate-boxed-object *dynamic*
-                                       ;; KLUDGE: Why 1+? -- WHN 19990901
-                                       ;; header word? -- CSR 20051204
-                                       (1+ target-layout-length)
-                                       sb!vm:instance-pointer-lowtag)))
-    (write-memory result
-                  (make-other-immediate-descriptor
-                   target-layout-length sb!vm:instance-header-widetag))
-
-    ;; KLUDGE: The offsets into LAYOUT below should probably be pulled out
-    ;; of the cross-compiler's tables at genesis time instead of inserted
-    ;; by hand as bare numeric constants. -- WHN ca. 19990901
-
-    ;; Set slot 0 = the layout of the layout.
-    (write-wordindexed result sb!vm:instance-slots-offset *layout-layout*)
-
+  (let ((result (allocate-structure-object *dynamic*
+                                           target-layout-length
+                                           *layout-layout*)))
     ;; Don't set the CLOS hash value: done in cold-init instead.
     ;;
     ;; Set other slot values.
@@ -1027,52 +1036,29 @@ core and return a descriptor to it."
 (defun initialize-layouts ()
 
   (clrhash *cold-layouts*)
-
-  ;; We initially create the layout of LAYOUT itself with NIL as the LAYOUT and
-  ;; #() as INHERITS,
+  ;; This assertion is due to the fact that MAKE-COLD-LAYOUT does not
+  ;; know how to set any raw slots.
+  (aver (= 0 (layout-n-untagged-slots (find-layout 'layout))))
   (setq *layout-layout* *nil-descriptor*)
-  (let ((xlayout-layout (find-layout 'layout)))
-    (aver (= 0 (layout-n-untagged-slots xlayout-layout)))
-    (setq *layout-layout*
-          (make-cold-layout 'layout
-                            (number-to-core target-layout-length)
-                            (vector-in-core)
-                            (number-to-core (layout-depthoid xlayout-layout))
-                            (number-to-core 0)))
-  (write-wordindexed
-   *layout-layout* sb!vm:instance-slots-offset *layout-layout*)
-
-  ;; Then we create the layouts that we'll need to make a correct INHERITS
-  ;; vector for the layout of LAYOUT itself..
-  ;;
-  ;; FIXME: The various LENGTH and DEPTHOID numbers should be taken from
-  ;; the compiler's tables, not set by hand.
-  (let* ((t-layout
-          (make-cold-layout 't
-                            (number-to-core 0)
-                            (vector-in-core)
-                            (number-to-core 0)
-                            (number-to-core 0)))
-         (so-layout
-          (make-cold-layout 'structure-object
-                            (number-to-core 1)
-                            (vector-in-core t-layout)
-                            (number-to-core 1)
-                            (number-to-core 0)))
-         (bso-layout
-          (make-cold-layout 'structure!object
-                            (number-to-core 1)
-                            (vector-in-core t-layout so-layout)
-                            (number-to-core 2)
-                            (number-to-core 0)))
-         (layout-inherits (vector-in-core t-layout
-                                          so-layout
-                                          bso-layout)))
-
-    ;; ..and return to backpatch the layout of LAYOUT.
-    (setf (fourth (gethash 'layout *cold-layouts*))
-          (listify-cold-inherits layout-inherits))
-    (cold-set-layout-slot *layout-layout* 'inherits layout-inherits))))
+  (flet ((chill-layout (name &rest inherits)
+           ;; Check that the number of specified INHERITS matches
+           ;; the length of the layout's inherits in the cross-compiler.
+           (let ((warm-layout (classoid-layout (find-classoid name))))
+             (assert (eql (length (layout-inherits warm-layout))
+                          (length inherits)))
+             (make-cold-layout
+              name
+              (number-to-core (layout-length warm-layout))
+              (apply #'vector-in-core inherits)
+              (number-to-core (layout-depthoid warm-layout))
+              (number-to-core (layout-n-untagged-slots warm-layout))))))
+    (let* ((t-layout   (chill-layout 't))
+           (s-o-layout (chill-layout 'structure-object t-layout))
+           (s!o-layout (chill-layout 'structure!object t-layout s-o-layout))
+           (ll         (chill-layout 'layout t-layout s-o-layout s!o-layout)))
+      (setf *layout-layout* ll)
+      (dolist (layout (list t-layout s-o-layout s!o-layout ll))
+        (write-wordindexed layout sb!vm:instance-slots-offset ll)))))
 
 ;;;; interning symbols in the cold image
 
@@ -1164,6 +1150,18 @@ core and return a descriptor to it."
             (bug "~A in bad package for target: ~A" symbol result))
           result))))
 
+;;; Assign target representation of VALUE to DESCRIPTOR.
+;;; The VALUE should not have shared substructure in a way that matters,
+;;; because sharing detection is not performed. It must not have cycles.
+(defun cold-set-symbol-global-value (descriptor value)
+  (labels ((target-representation (value)
+             (etypecase value
+               (symbol (cold-intern value))
+               (number (number-to-core value))
+               (cons (cold-cons (target-representation (car value))
+                                (target-representation (cdr value)))))))
+    (cold-set descriptor (target-representation value))))
+
 ;;; Return a handle on an interned symbol. If necessary allocate the
 ;;; symbol and record which package the symbol was referenced in. When
 ;;; we allocate the symbol, make sure we record a reference to the
@@ -1199,8 +1197,10 @@ core and return a descriptor to it."
                #!+sb-thread
                (assign-tls-index symbol handle)
                (setf (gethash (descriptor-bits handle) *cold-symbols*) symbol)
-               (when (eq package *keyword-package*)
-                 (cold-set handle handle))
+               (acond ((eq package *keyword-package*)
+                       (cold-set handle handle))
+                      ((assoc symbol sb-cold:*symbol-values-for-genesis*)
+                       (cold-set-symbol-global-value handle (cdr it))))
                (setq cold-intern-info
                      (setf (get symbol 'cold-intern-info) (cons handle nil)))))
             (t
@@ -2160,11 +2160,9 @@ core and return a descriptor to it."
 
 (clone-cold-fop (fop-struct)
                 (fop-small-struct)
-  (let* ((size (clone-arg))
-         (result (allocate-boxed-object *dynamic*
-                                        (1+ size)
-                                        sb!vm:instance-pointer-lowtag))
+  (let* ((size (clone-arg)) ; n-words including layout, excluding header
          (layout (pop-stack))
+         (result (allocate-structure-object *dynamic* size layout))
          (nuntagged
           (descriptor-fixnum
            (read-wordindexed
@@ -2172,12 +2170,6 @@ core and return a descriptor to it."
             (+ sb!vm:instance-slots-offset
                (target-layout-index 'n-untagged-slots)))))
          (ntagged (- size nuntagged)))
-    ;; An instance's header word should always indicate that it has an *odd*
-    ;; number of words after the header so that the total with header is even.
-    (write-memory result (make-other-immediate-descriptor
-                          (logior size 1)
-                          sb!vm:instance-header-widetag))
-    (write-wordindexed result sb!vm:instance-slots-offset layout)
     (do ((index 1 (1+ index)))
         ((eql index size))
       (declare (fixnum index))

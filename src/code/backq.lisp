@@ -14,10 +14,6 @@
 (/show0 "entering backq.lisp")
 
 ;; An unquoting COMMA struct.
-;; Were these slots writable, the out-of-line defuns for setting them would
-;; call #'(SETF %INSTANCE-REF) provoking a warning later that %INSTANCE-REF
-;; gets a SETF macro. The warning is fatal. Read-only is what I want anyway.
-;; This is only an issue for files compiled prior to "defsetfs".
 (defstruct (comma (:constructor unquote (expr &optional (kind 0)))
                   ;; READing unpretty commas requires a default constructor.
                   (:constructor %default-comma-constructor)
@@ -155,7 +151,7 @@
 ;; as a proper list, and new DOTTED-P flag. i.e. Conceptually:
 ;;    `(a ,[@]b c d)   -> `(a ,[@]b . (c d))
 ;;    `(a ,[@]b c . d) -> `(a ,[@]b . (c . d))
-(defun qq-fold-suffix (subforms dotted-p)
+(defun qq-fold-suffix (subforms dotted-p vectorp)
   (labels ((const-tailp (list)
              (if list
                  (let* ((rest (cdr list))
@@ -177,7 +173,7 @@
                  (and (not (qq-subform-splicing-p (car list)))
                       (convertible-p (cdr list)))
                  (qq-subform-splicing-p (car list)))))
-    (when (and (not dotted-p) (convertible-p subforms))
+    (when (and (not dotted-p) (not vectorp) (convertible-p subforms))
       (let ((tail (car (last subforms))))
         (setq subforms (nconc (nbutlast subforms) (list (list (car tail))))
               dotted-p t))))
@@ -224,11 +220,16 @@
     ;; list no matter what. It could theoretically be avoided by doing:
     ;;  (MULTIPLE-VALUE-CALL #'VECTOR ... (VALUES-LIST <splice>) ...)
     (if (or (listp original) (some #'qq-subform-splicing-p list))
-        (qq-fold-suffix list dotted-p)
+        (qq-fold-suffix list dotted-p (vectorp input))
         (values list dotted-p))))
 
 ;; Return an expression to quasi-quote INPUT, which is either a list
 ;; or simple-vector, by recursing over its subexpressions.
+;; The expansion is in terms of CL-standard functions for MACROEXPAND,
+;; but SBCL-private functions for the compiler-macro.
+;; This is mainly for aesthetics. If users expressly macroexpand a sexpr
+;; and then compile it, they miss out on the opportunity for the minor
+;; advantage provided by the foldable functions, but why would they do that?
 (defun qq-template-1 (input depth compiler-p)
   (multiple-value-bind (subforms dot-p)
       (qq-map-template-to-list input depth compiler-p)
@@ -258,7 +259,7 @@
                      (list 'quote exp)
                      exp)))
              (normalize-fn (fn-name)
-               (if compiler-p
+               (if (or compiler-p (eq fn-name 'nconc))
                    fn-name
                    (ecase fn-name
                      (|Append| 'append)
@@ -267,7 +268,13 @@
                      (|Vector| 'vector))))
              (recurse (list &aux (elt (car list)) (rest (cdr list)))
                (if (endp rest)
-                   (cond ((or dot-p (qq-subform-splicing-p elt)) (render elt))
+                   (cond ((or dot-p (qq-subform-splicing-p elt))
+                          (let ((tail (render elt)))
+                            (if (vectorp input)
+                                ;; When splicing pieces into a vector,
+                                ;; force the tail to be a list.
+                                (list (normalize-fn '|Append|) tail nil)
+                                tail)))
                          ((const-p elt) (list 'quote (list (const-val elt))))
                          (t (list (normalize-fn '|List|)
                                   (render elt)))) ; singleton list
